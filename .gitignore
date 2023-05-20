@@ -6,6 +6,9 @@
 *.mp3
 *.sqlite*
 *.log
+*.part
+*.ytdl
+outputs/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
