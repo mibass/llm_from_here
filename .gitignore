@@ -1,3 +1,15 @@
+#custom
+.DS_STORE
+.vscode
+*.ipynb
+*.wav
+*.mp3
+*.sqlite*
+*.log
+*.part
+*.ytdl
+outputs/*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
