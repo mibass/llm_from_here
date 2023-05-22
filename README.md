@@ -56,6 +56,17 @@ This project uses dotenv to set environment variables. Keys are needed for:
 * freesound api `FREESOUND_API_KEY`
 * openai `OPENAI_API_KEY`
 
+### Usage
+
+To run the script, execute the following command:
+
+```python script_name.py config.yaml [--clear-cache]```
+
+Optional flag:
+
+    --clear-cache: Use this flag to clear the plugin cache before execution.
+
+Make sure to provide the path to your YAML configuration file. The script will execute plugins defined in the YAML file, store results in the output folder, and log the execution details.
 
 ### TODO
 
