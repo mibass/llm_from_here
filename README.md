@@ -1,6 +1,6 @@
 
 
-# LLM From Here [repo is WIP]
+# LLM From Here
 
 This repository contains code for the LLM From Here project.
 The primary goal is to produce an automated podcast generator that can use LLMs to
