@@ -2,7 +2,6 @@
 .DS_STORE
 .vscode
 *.ipynb
-*.wav
 *.mp3
 *.sqlite*
 *.log

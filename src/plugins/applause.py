@@ -24,7 +24,7 @@ def generate_applause(duration, start, end, variation):
     # Load a applause sample
     script_path = os.path.dirname(os.path.abspath(sys.argv[0]))
     applause_file_path = os.path.join(
-        script_path, "../resources/277021__sandermotions__applause-2.wav")
+        script_path, "../resources/applause_sample.wav")
     with open(applause_file_path, 'rb') as f:
         applause = AudioSegment.from_wav(f)
 

@@ -17,7 +17,8 @@ These instructions will help you set up the project environment using Conda.
 
 ### Prerequisites
 
-- [Anaconda](https://www.anaconda.com/) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html) should be installed on your system.
+- Python 3.10
+- pip
 
 ### Setup
 
@@ -30,20 +31,21 @@ These instructions will help you set up the project environment using Conda.
     ```
     cd llm_from_here
     ```
-1. Create a new Conda environment from the provided YAML file:
+1. Create a virtual environment (optional but recommended):
     ```
-    conda env create -f environment.yml
+    python -m venv venv
     ```
-    This will create a new environment with the required dependencies specified in environment.yml.
 
 1. Activate the newly created environment:
-
     ```
-    conda activate environment-name
+    source venv/bin/activate
     ```
-    Replace environment-name with the name of the environment specified in environment.yml.
+    (Replace `venv` with the name of the environment)
 
-1. Start using the project!
+1. Install the project dependencies:
+    ```
+    pip install -r requirements.txt
+    ```
 
 ### Configuration
 
