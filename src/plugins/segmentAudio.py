@@ -8,10 +8,8 @@ from applause import generate_applause
 import freesoundfetch
 import ytfetch
 
-# configure logging
 import logging
-logging.basicConfig(filename='segmentAudio.log', level=logging.INFO)
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 
 class SegmentAudio():
@@ -106,11 +104,11 @@ class SegmentAudio():
             segment_type = entry[type_key].lower()
             if segment_type not in segment_type_map:
                 if 'default' not in segment_type_map:
-                    logging.error(
+                    logger.error(
                         f"No function found for segment type: {segment_type} and no default set")
                     raise Exception(
                         f"No function found for segment type: {segment_type} and no default set")
-                logging.warning(
+                logger.warning(
                     f"No function found for segment type: {segment_type}. Using default function.")
                 segment_type = 'default'
                 
@@ -133,7 +131,7 @@ class SegmentAudio():
                     prompt = segment_type_map[segment_type].get('intro_prompt', None)
                     if prompt and chat_app:
                         intro_prompt = prompt + entry[value_key] + ":::" + res['title']
-                        logging.info(f"Prompting chat app with: {intro_prompt}")
+                        logger.info(f"Prompting chat app with: {intro_prompt}")
                         intro_text = chat_app.chat(intro_prompt, strip_quotes=True)
                     else:
                         intro_text = 'Ladies and gentlemen... {intro_text}' 
@@ -141,7 +139,7 @@ class SegmentAudio():
                     
                     new_data.append({type_key: 'applause',
                                  'filename': intro_file_path})
-                    logging.info(f"Generated intro name for: {intro_text}")
+                    logger.info(f"Generated intro name for: {intro_text}")
                     
             if segment_type_map[segment_type].get('intro', False):
                 intro_file_name = filename_prefix + "_intro.wav"
@@ -149,7 +147,7 @@ class SegmentAudio():
                 self.fast_TTS(f'Ladies and gentlemen... {entry[value_key]}', intro_file_path)
                 new_data.append({type_key: 'applause',
                                 'filename': intro_file_path})
-                logging.info(f"Generated intro name for: {entry[value_key]}")
+                logger.info(f"Generated intro name for: {entry[value_key]}")
             
             # generate applause, if enabled for this segment
             if segment_type_map[segment_type].get('intro_applause', False):
@@ -158,7 +156,7 @@ class SegmentAudio():
                 self.applause_generator('duration 3', applause_file_path)
                 new_data.append({type_key: 'applause',
                                  'filename': applause_file_path})
-                logging.info(f"Generated applause")
+                logger.info(f"Generated applause")
                 
 
             # Update the entry with the filename, if it exists

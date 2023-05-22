@@ -13,10 +13,8 @@ from gtts import gTTS
 from pydub import AudioSegment
 from pydub.silence import detect_nonsilent
 
-#configure logging
 import logging
-logging.basicConfig(filename='showTTS.log', level=logging.INFO)
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 MODEL_SETTINGS = {'text_use_small':True,
                 'coarse_use_small':True,
@@ -66,14 +64,14 @@ class ShowTextToSpeech:
 
     def speak(self, text, output_file, fast=False):
         if fast:
-            logging.info(f"Using fast TTS for text: {text}")
+            logger.info(f"Using fast TTS for text: {text}")
             self._speak_gtts(text, output_file)
         else:
-            logging.info(f"Using slow TTS for text: {text}")
+            logger.info(f"Using slow TTS for text: {text}")
             if not self.models_preloaded:
                 self.models_preloaded = True
                 preload_models(**MODEL_SETTINGS)
-                logging.info(f"Finished preloading models for slow TTS.")
+                logger.info(f"Finished preloading models for slow TTS.")
             self._speak_bark(text, output_file)
 
     def _speak_gtts(self, text, output_file):
@@ -89,7 +87,7 @@ class ShowTextToSpeech:
         # Remove the temporary MP3 file
         import os
         os.remove(temp_mp3_file)
-        logging.info(f'Successfully generated audio file: {output_file}')
+        logger.info(f'Successfully generated audio file: {output_file}')
         self.audio_file = output_file
         
     def _speak_bark(self, text, output_file):
@@ -102,7 +100,7 @@ class ShowTextToSpeech:
         self.pieces = []
         sentences = split_sentences(text)
         for sentence in sentences:
-            logging.info(f'Generating bark audio for sentence: {sentence}')
+            logger.info(f'Generating bark audio for sentence: {sentence}')
             # semantic_tokens = generate_text_semantic(
             #     sentence,
             #     history_prompt=SPEAKER,
@@ -125,7 +123,7 @@ class ShowTextToSpeech:
         audio_array = np.concatenate(self.pieces)
         write_wav(output_file, SAMPLE_RATE, audio_array_16bit)
 
-        logging.info(f'Successfully generated audio file: {output_file}')
+        logger.info(f'Successfully generated audio file: {output_file}')
         self.audio_file = output_file
         
     def print_sample(self):

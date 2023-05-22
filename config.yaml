@@ -205,20 +205,20 @@ plugins:
         - guests_audio_stitch_stitched_audio_file
 
 
-  - name: lfh_rss
-    plugin: podcastRssManager
-    class: podcastRssManager
-    params:
-      podcast_title: LLM From Here
-      final_guests_list_variable: guests_audio_segments
-      podcast_description_template: >
-        On tonight's episode of LLM From Here:
-        {% for guest in guests_audio_segments %}
-        {% if guest.result %}
-        Title: {{ guest.result.title }}
-        Link: {{ guest.result.video_url }}
-        {% endif %}
-        {% endfor %}
-      podcast_base_url: https://www.llmfromhere.org/
-      podcast_file_name_final_template: llm_from_here_{{ lfh_rss_date.strftime('%Y%m%d') }}.mp3
-      output_xml_file: llm_from_here_podcast_rss.xml
+  # - name: lfh_rss
+  #   plugin: podcastRssManager
+  #   class: podcastRssManager
+  #   params:
+  #     podcast_title: LLM From Here
+  #     final_guests_list_variable: guests_audio_segments
+  #     podcast_description_template: >
+  #       On tonight's episode of LLM From Here:
+  #       {% for guest in guests_audio_segments %}
+  #       {% if guest.result %}
+  #       Title: {{ guest.result.title }}
+  #       Link: {{ guest.result.video_url }}
+  #       {% endif %}
+  #       {% endfor %}
+  #     podcast_base_url: https://www.llmfromhere.org/
+  #     podcast_file_name_final_template: llm_from_here_{{ lfh_rss_date.strftime('%Y%m%d') }}.mp3
+  #     output_xml_file: llm_from_here_podcast_rss.xml

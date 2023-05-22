@@ -11,10 +11,8 @@ import random
 import html
 import fnmatch
 
-#configure logging
 import logging
-logging.basicConfig(filename='ytfetch.log', level=logging.INFO)
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 
 
@@ -102,7 +100,7 @@ class YtFetch():
                 continue
 
             # Check if the description contains the filter string
-            logging.info(f"Checking video description {item['snippet']['description']}")
+            logger.info(f"Checking video description {item['snippet']['description']}")
             if description_filters:
                 matched_filter = None
                 for description_filter in description_filters:
@@ -111,7 +109,7 @@ class YtFetch():
                         break
 
                 if matched_filter is not None:
-                    logging.info(f"Video {video_id} matches description filter {matched_filter}. Skipping.")
+                    logger.info(f"Video {video_id} matches description filter {matched_filter}. Skipping.")
                     continue
         
             # Fetch the video details
@@ -134,7 +132,7 @@ class YtFetch():
                     'video_url': f"https://www.youtube.com/watch?v={video_id}"
                 }
             else:
-                logging.info(f"Video {video_id} duration {duration_seconds} does not fall within the specified range, {min_duration}:{max_duration}. Skipping.")
+                logger.info(f"Video {video_id} duration {duration_seconds} does not fall within the specified range, {min_duration}:{max_duration}. Skipping.")
 
         # If no videos in the specified duration range were found, return None
         return None
@@ -148,7 +146,7 @@ class YtFetch():
 
         # If no video was found, print a message and return
         if video is None:
-            logging.info(f"No video found within the specified duration range.")
+            logger.info(f"No video found within the specified duration range.")
             return
 
         # If a video was found, download its audio
@@ -158,7 +156,7 @@ class YtFetch():
             output_file = f"{video_id}.wav"
         
         self.download_audio(video['video_url'], output_file)
-        logging.info(f"Audio saved as {output_file}")
+        logger.info(f"Audio saved as {output_file}")
         
         return video
 
@@ -178,14 +176,14 @@ class YtFetch():
 
     def download_random_video_from_playlist(self, playlist_id, output_file=None, max_retries=5):
         """Randomly choose a video from a playlist to download"""
-        logging.info(f"Retrieving playlist items for playlist id: {playlist_id}")
+        logger.info(f"Retrieving playlist items for playlist id: {playlist_id}")
         video_ids = self.get_playlist_items(playlist_id)
 
         # Retry loop
         for retry in range(max_retries):
             random_video_id = random.choice(video_ids)
             random_video_url = f"https://www.youtube.com/watch?v={random_video_id}"
-            logging.info(f"Chosen Video URL: {random_video_url}")
+            logger.info(f"Chosen Video URL: {random_video_url}")
 
             # Get video details
             video_request = self.youtube.videos().list(
@@ -205,10 +203,10 @@ class YtFetch():
                 break  # Exit the retry loop if video details are obtained successfully
 
             if retry < max_retries - 1:
-                logging.warning(f"Failed to get video details. Retrying with another video in 2 seconds... (Attempt {retry + 1}/{max_retries})")
+                logger.warning(f"Failed to get video details. Retrying with another video in 2 seconds... (Attempt {retry + 1}/{max_retries})")
                 time.sleep(2)  # Wait for 2 seconds before retrying
         else:
-            logging.error(f"Failed to retrieve video details after {max_retries} attempts.")
+            logger.error(f"Failed to retrieve video details after {max_retries} attempts.")
             return None
 
         # Download audio

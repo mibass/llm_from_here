@@ -16,7 +16,8 @@ load_dotenv()  # take environment variables from .env.
 
 # Set up logging
 logging.basicConfig(filename='showRunner.log', level=logging.INFO,
-                    format='%(asctime)s:%(levelname)s:%(message)s')
+                    format='%(asctime)s:%(name)s:%(levelname)s:%(message)s')
+logger = logging.getLogger(__name__)
 
 # Define the plugins directory
 # Get the absolute path of the directory containing this script
@@ -39,7 +40,7 @@ plugin_cache = SqliteDict('./plugin_cache.sqlite', autocommit=True)
 def execute_plugins(yaml_file, clear_cache=False):
     if clear_cache:
         plugin_cache.clear()
-        logging.info("Cache cleared.")
+        logger.info("Cache cleared.")
 
     with open(yaml_file) as file:
         data = yaml.load(file, Loader=yaml.Loader)
@@ -66,7 +67,7 @@ def execute_plugins(yaml_file, clear_cache=False):
         cache_plugin = entry.get('cache', False)
         plugin_retries = entry.get('retries', 1)
         if cache_plugin:
-            logging.info(
+            logger.info(
                 f"Cache enabled for plugin '{plugin_name}:{name_key}'.")
 
         # Generate hash of the plugin entry
@@ -75,7 +76,7 @@ def execute_plugins(yaml_file, clear_cache=False):
         # Check if cache is enabled and entry is in cache
         if cache_plugin and entry_hash in plugin_cache:
             plugin_results = plugin_cache[entry_hash]
-            logging.info(
+            logger.info(
                 f"Plugin '{plugin_name}' results retrieved from cache.")
         else:
             # Import the plugin if it exists
@@ -83,13 +84,13 @@ def execute_plugins(yaml_file, clear_cache=False):
                 module = importlib.import_module(f'{plugin_name}')
                 plugin_class = getattr(module, plugin_class)
                 plugin_instance = plugin_class()
-                logging.info(
+                logger.info(
                     f"Plugin '{plugin_name}' has been imported successfully.")
             except AttributeError:
-                logging.critical(f"Plugin '{plugin_name}' not found.")
+                logger.critical(f"Plugin '{plugin_name}' not found.")
                 raise
             except ModuleNotFoundError:
-                logging.critical(f"Module '{plugin_name}' not found.")
+                logger.critical(f"Module '{plugin_name}' not found.")
                 raise
 
             # if enabled, attempt to execute the plugin until there are no validation or assertion errors
@@ -101,9 +102,9 @@ def execute_plugins(yaml_file, clear_cache=False):
                     break
                 except (ValidationError, AssertionError) as e:
                     if plugin_retries > 1:
-                        logging.error("Caught exception:", str(e))
+                        logger.error("Caught exception:", str(e))
                         retries += 1
-                        logging.info(f"Retry {retries} of {plugin_retries}")
+                        logger.info(f"Retry {retries} of {plugin_retries}")
                         time.sleep(1)  # Wait for 1 second before retrying
                     else:
                         raise e
@@ -112,7 +113,7 @@ def execute_plugins(yaml_file, clear_cache=False):
                 raise Exception(
                     f"Exceeded maximum retries of {plugin_retries}. Function failed.")
 
-            logging.info(
+            logger.info(
                 f"Plugin '{plugin_name}' has been executed successfully.")
 
             # Store results in cache
@@ -129,7 +130,7 @@ def execute_plugins(yaml_file, clear_cache=False):
         global_results.update(prepended_results)
 
         # Log the contents of global_results
-        #logging.info(f"global_results after executing '{plugin_name}': {global_results}")
+        #logger.info(f"global_results after executing '{plugin_name}': {global_results}")
         
         
     #dump the full global_results to yaml file in the output folder

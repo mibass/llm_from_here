@@ -7,6 +7,9 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 from xml.dom import minidom
 import yaml
 import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 class PodcastRssManager:
     def __init__(self):
@@ -42,11 +45,13 @@ class PodcastRssManager:
         print(xml_string)
             
     def execute(self, params, global_results, plugin_instance_name):
-        podcast_dict = params.get('podcast_dict', {})
         template_str = params.get('template_str', '')
         
         #add date to global_results
         global_results[plugin_instance_name+'_date'] = datetime.datetime.now()
+        
+        podcast_dict
+        
         
         self.add_podcast(podcast_dict, template_str, global_results)
             

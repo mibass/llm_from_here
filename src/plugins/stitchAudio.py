@@ -1,10 +1,8 @@
 from pydub import AudioSegment
 import os
 
-# configure logging
 import logging
-logging.basicConfig(filename='stitchAudio.log', level=logging.INFO)
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 TARGET_AMPLITUDE = -20.0
 
@@ -41,7 +39,7 @@ class StitchAudio():
             # pull data from segments_list
             segments_list = parms.get('segments_list', None)
             if segments_list is None:
-                logging.error(
+                logger.error(
                     "No segments list or segments_object found in settings/global parameters.")
                 raise Exception(
                     "No segments list or segments_object found in settings/global parameters.")
@@ -49,7 +47,7 @@ class StitchAudio():
             for segment in segments_list:
                 data.append({'speaker': 'spoken',
                             'filename': global_parms[segment]})
-            logging.info(f"Using segments_list to generate audio: {data}")
+            logger.info(f"Using segments_list to generate audio: {data}")
 
         background_music_filename = None
         for audio_dict in data:
@@ -57,10 +55,10 @@ class StitchAudio():
             filename = audio_dict.get(segment_filename_key)
             if speaker not in segment_type_map:
                 if 'default' not in segment_type_map:
-                    logging.warning(
+                    logger.warning(
                         f"No function found for segment type: {speaker} using spoken function.")
                 else:
-                    logging.warning(
+                    logger.warning(
                         f"No function found for segment type: {speaker}. Using default function.")
                 speaker = 'default'
                 

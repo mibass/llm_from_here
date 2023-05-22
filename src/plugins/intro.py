@@ -8,18 +8,16 @@ import fnmatch
 from collections import Counter
 from fuzzywuzzy import process
 
-# Configure logging
-logging.basicConfig(filename='intro.log', level=logging.INFO)
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 def validate_json_response(response, schema):
     try:
         validate(instance=response, schema=schema)
         return True
     except ValidationError as e:
-        logging.error(f"Validation Error: {e.message}")
-        logging.error(f"Actual response: {response}")
-        logging.error(f"Expected schema: {schema}")
+        logger.error(f"Validation Error: {e.message}")
+        logger.error(f"Actual response: {response}")
+        logger.error(f"Expected schema: {schema}")
         raise e
     
 def filter_guests_count(guests, max_occurrences_dict):
@@ -137,7 +135,7 @@ class Intro:
         # apply guest list filter
         guest_filter = params.get('guest_name_filters', [])
         if guest_filter != []:
-            logging.info(f"Found guests filter: {guest_filter}")
+            logger.info(f"Found guests filter: {guest_filter}")
             guests_new = [guest for guest in guests if not any(fnmatch.fnmatch(
                 guest['guest_name'].lower(), pattern.lower()) for pattern in params.get('guest_name_filters', []))]
             if len(guests_new) != len(guests):
@@ -154,18 +152,18 @@ class Intro:
             guests = filter_guests_count(guests, guest_count_filter)
 
         #log guests
-        logging.info(f"Guests is now: {guests}")
+        logger.info(f"Guests is now: {guests}")
 
         # raise an error if there are no guests
         if len(guests) == 0:
-            logging.error("No guests found in intro.")
+            logger.error("No guests found in intro.")
             raise Exception("No guests found in intro.")
 
         #raise an assertion error to trigger a retry
         try:
             assert len(guests) > 0, "Number of guests must be greater than zero."
         except AssertionError as e:
-            logging.error(str(e))
+            logger.error(str(e))
             raise e
 
         result = {
