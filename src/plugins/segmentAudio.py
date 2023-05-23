@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class SegmentAudio():
     def __init__(self, params, global_results, plugin_instance_name):
         self.show_tts = showTTS.ShowTextToSpeech()
-        self.freesound_fetch = freesoundfetch.FreeSoundFetch()
+        self.freesound_fetch = freesoundfetch.FreeSoundFetch(params, global_results, plugin_instance_name)
         self.yt_fetch = ytfetch.YtFetch()
         self.chat_app_object = global_results.get(params.get('chat_app_object', 'intro_chat_app'), None)
         self.global_results = global_results

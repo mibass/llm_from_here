@@ -89,8 +89,11 @@ class Intro:
 
         self.validate_required_params()
         self.script = self.chat_app.chat(params['script_prompt'])
+        logger.info(f"Script: {self.script}")
         self.intro = json.loads(self.chat_app.chat(params['json_script_prompt']))
+        logger.info(f"Intro json: {self.intro}")
         self.guests = json.loads(self.chat_app.chat(params['json_guest_prompt']))
+        logger.info(f"Guests json: {self.guests}")
 
         self.extra_prompt_responses = self.get_extra_prompt_responses()
         self.validate_json_response()
