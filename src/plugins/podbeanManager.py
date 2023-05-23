@@ -69,6 +69,7 @@ class PodbeanManager:
 
     def upload_episode(self, episode, max_episodes=5):
         if len(self.episodes) >= max_episodes:
+            logging.info(f"Deleting oldest episode; max episodes: {max_episodes}, current episodes: {len(self.episodes)}")
             self.delete_oldest_episode()
         file_key = self._upload()
 
@@ -76,7 +77,7 @@ class PodbeanManager:
 
     def delete_oldest_episode(self):
         if self.episodes:
-            oldest_episode = self.episodes.pop(0)
+            oldest_episode = self.episodes.pop()
             self._delete(oldest_episode)
 
     def publish_episode(self, title, content, status, episode_type, media_key=None, logo_key=None, transcripts_key=None,
@@ -180,7 +181,7 @@ class PodbeanManager:
         return file_key
 
     def _delete(self, episode):
-        url = f"https://api.podbean.com/v1/episodes/{episode['episode_id']}/delete"
+        url = f"https://api.podbean.com/v1/episodes/{episode['id']}/delete"
         data = {
             'access_token': self.access_token,
             'delete_media_file': 'yes'
@@ -188,6 +189,8 @@ class PodbeanManager:
         response = requests.post(url, data=data)
         if response.status_code != 200:
             raise Exception(f'Failed to delete episode: {response.content}')
+        
+        logging.info(f'Successfully deleted episode: {response.json()}')
 
     def execute(self):
         self.get_access_token()
@@ -195,7 +198,7 @@ class PodbeanManager:
 
         self.get_episodes()
         logger.info(f"Found {len(self.episodes)} episodes in feed")
-        logger.info(f"Last episodes title was {self.episodes[-1]['title']}")
+        logger.info(f"Last episodes title was {self.episodes[0]['title']}")
 
         file_key = self.upload_episode(self.file_path)
         logger.info(f"Uploaded file and got key {file_key} ")
