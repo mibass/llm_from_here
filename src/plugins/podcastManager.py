@@ -13,7 +13,11 @@ logger = logging.getLogger(__name__)
 from common import log_exception
 
 class PodcastManager:
-    def __init__(self):
+    def __init__(self, params, global_results, plugin_instance_name):
+        self.params = params
+        self.global_results = global_results
+        self.plugin_instance_name = plugin_instance_name
+        
         self.podcast_title_template = None
         self.final_guests_list_variable = None
         self.podcast_description_template = None
@@ -60,22 +64,21 @@ class PodcastManager:
         return final_file_path
 
     @log_exception(logger.error)
-    def execute(self, params, global_results, plugin_instance_name):
+    def execute(self):
         
-        self.podcast_title_template = params.get('podcast_title')
-        self.final_guests_list_variable = params.get('final_guests_list_variable')
-        self.podcast_description_template = params.get('podcast_description_template')
-        self.podcast_feed_url = params.get('podcast_feed_url')
-        self.podcast_file_name_final_template = params.get('podcast_file_name_final_template')
+        self.podcast_title_template = self.params.get('podcast_title')
+        self.final_guests_list_variable = self.params.get('final_guests_list_variable')
+        self.podcast_description_template = self.params.get('podcast_description_template')
+        self.podcast_feed_url = self.params.get('podcast_feed_url')
+        self.podcast_file_name_final_template = self.params.get('podcast_file_name_final_template')
         
         
         #get global results
-        print(params)
-        self.file_name = global_results.get(params.get('source_file_name_variable'))
+        self.file_name = self.global_results.get(self.params.get('source_file_name_variable'))
         logger.info(f"Found source file name: {self.file_name} ")
         
         
-        guests_audio_segments = global_results.get(self.final_guests_list_variable, [])
+        guests_audio_segments = self.global_results.get(self.final_guests_list_variable, [])
         
         logger.info(f"Generating podcast description with guests: {guests_audio_segments}")
 

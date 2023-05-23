@@ -8,6 +8,8 @@ import fnmatch
 from collections import Counter
 from fuzzywuzzy import process
 
+from common import log_exception
+
 logger = logging.getLogger(__name__)
 
 def validate_json_response(response, schema):
@@ -19,7 +21,8 @@ def validate_json_response(response, schema):
         logger.error(f"Actual response: {response}")
         logger.error(f"Expected schema: {schema}")
         raise e
-    
+
+
 def filter_guests_count(guests, max_occurrences_dict):
     # Count the occurrences of each guest category
     category_counter = Counter()
@@ -34,6 +37,7 @@ def filter_guests_count(guests, max_occurrences_dict):
             category_counter[category] += 1
 
     return filtered_guests
+
 
 def match_categories(guest_list, standard_categories):
     replacement_map = {}
@@ -52,10 +56,14 @@ def match_categories(guest_list, standard_categories):
 
     return replacement_map
 
+
 class Intro:
-    def __init__(self):
-        # Initialize any necessary attributes
-        self.chat_app = None
+    def __init__(self, params, global_params, plugin_instance_name, chat_app=None):
+        self.chat_app = chat_app or gpt.ChatApp(params['system_message'])
+        self.params = params
+        self.global_params = global_params
+        self.plugin_instance_name = plugin_instance_name
+
         self.intro_schema = {
             "type": "array",
             "items": {
@@ -79,99 +87,80 @@ class Intro:
             }
         }
 
-    def execute(self, params, global_params, plugin_instance_name):
+        self.validate_required_params()
+        self.script = self.chat_app.chat(params['script_prompt'])
+        self.intro = json.loads(self.chat_app.chat(params['json_script_prompt']))
+        self.guests = json.loads(self.chat_app.chat(params['json_guest_prompt']))
 
-        #check that required params are present
+        self.extra_prompt_responses = self.get_extra_prompt_responses()
+        self.validate_json_response()
+        self.normalize_guest_categories()
+        self.apply_guest_list_filter()
+        self.apply_guest_count_filter()
+
+    def validate_required_params(self):
         required_params = ['system_message', 'script_prompt', 'json_script_prompt', 'json_guest_prompt']
         for required_param in required_params:
-            if required_param not in params:
+            if required_param not in self.params:
+                logger.error(f"Required parameter {required_param} not found in params.")
                 raise Exception(f"Required parameter {required_param} not found in params.")
 
-        #system message
-        self.chat_app = gpt.ChatApp(params['system_message'])
-
-        #script
-        script = self.chat_app.chat(params['script_prompt'])
-        
-        #script json
-        json_script = self.chat_app.chat(params['json_script_prompt'])
-        intro = json.loads(json_script)
-
-        #guests json
-        json_guests = self.chat_app.chat(params['json_guest_prompt'])
-        guests = json.loads(json_guests)
-
-        #log results
-        logger.info(f"System message: {params['system_message']}")
-        logger.info(f"script_prompt: {params['script_prompt']}")
-        logger.info(f"script: {script}")
-        logger.info(f"json_script_prompt: {params['json_script_prompt']}")
-        logger.info(f"intro: {intro}")
-        logger.info(f"guest_list_prompt: {params['json_guest_prompt']}")
-        logger.info(f"guests: {guests}")
-
-        #extra prompts
-        extra_prompts = params.get('extra_prompts', [{}])
+    def get_extra_prompt_responses(self):
+        extra_prompts = self.params.get('extra_prompts', [{}])
         extra_prompt_responses = {}
         for prompt in extra_prompts:
             logger.info(f"Running extra_prompt: {prompt}")
-            extra_prompt_responses[prompt['name']
-                                   ] = self.chat_app.chat(prompt['prompt'])
-            logger.info(
-                f"Extra prompt response: {extra_prompt_responses[prompt['name']]}")
+            extra_prompt_responses[prompt['name']] = self.chat_app.chat(prompt['prompt'])
+            logger.info(f"Extra prompt response: {extra_prompt_responses[prompt['name']]}")
+        return extra_prompt_responses
 
-        # validate json
-        validate_json_response(intro, self.intro_schema)
-        validate_json_response(guests, self.guests_schema)
-        
-        #normalize guest categories
-        guest_categories = params.get('guest_categories', [])
+    def validate_json_response(self):
+        validate_json_response(self.intro, self.intro_schema)
+        validate_json_response(self.guests, self.guests_schema)
+
+    def normalize_guest_categories(self):
+        guest_categories = self.params.get('guest_categories', [])
         if guest_categories != []:
             logger.info("Normalizing guest categories")
-            updates = match_categories(guests, guest_categories)
+            updates = match_categories(self.guests, guest_categories)
             if updates != {}:
                 logger.warning(f"Guest categories replacements made: {updates}")
 
-        # apply guest list filter
-        guest_filter = params.get('guest_name_filters', [])
+    def apply_guest_list_filter(self):
+        guest_filter = self.params.get('guest_name_filters', [])
         if guest_filter != []:
             logger.info(f"Found guests filter: {guest_filter}")
-            guests_new = [guest for guest in guests if not any(fnmatch.fnmatch(
-                guest['guest_name'].lower(), pattern.lower()) for pattern in params.get('guest_name_filters', []))]
-            if len(guests_new) != len(guests):
-                removed = list(set(set({tuple(guest.items()) for guest in guests}))
-                               - set({tuple(guest.items())
-                                      for guest in guests_new})
-                               )
-                print(f"Guest list filter applied. Guests removed:{removed}")
-            guests = guests_new
-            
-        #apply guest count filter
-        guest_count_filter = params.get('guest_count_filters', {})
+            original_guests = self.guests
+            self.guests = [
+                guest for guest in self.guests if not any(
+                    fnmatch.fnmatch(guest['guest_name'].lower(), pattern.lower())
+                    for pattern in guest_filter
+                )
+            ]
+            if len(original_guests) != len(self.guests):
+                removed_guests = list(set(original_guests) - set(self.guests))
+                logger.info(f"Guests list filter applied. Guests removed: {removed_guests}")
+
+    def apply_guest_count_filter(self):
+        guest_count_filter = self.params.get('guest_count_filters', {})
         if guest_count_filter != {}:
-            guests = filter_guests_count(guests, guest_count_filter)
+            self.guests = filter_guests_count(self.guests, guest_count_filter)
+            logger.info(f"Guests is now: {self.guests}")
+    
+    @log_exception(logger.error)
+    def check_guests(self):
+        assert len(self.guests) > 0, "Number of guests must be greater than zero."
 
-        #log guests
-        logger.info(f"Guests is now: {guests}")
-
-        # raise an error if there are no guests
-        if len(guests) == 0:
-            logger.error("No guests found in intro.")
-            raise Exception("No guests found in intro.")
-
-        #raise an assertion error to trigger a retry
-        try:
-            assert len(guests) > 0, "Number of guests must be greater than zero."
-        except AssertionError as e:
-            logger.error(str(e))
-            raise e
+    def execute(self):
+        self.check_guests()
 
         result = {
-            "script": script,
-            "intro": intro,
-            "guests": guests,
-            "extra_prompt_responses": extra_prompt_responses,
+            "script": self.script,
+            "intro": self.intro,
+            "guests": self.guests,
+            "extra_prompt_responses": self.extra_prompt_responses,
             "chat_app": self.chat_app
         }
 
         return result
+

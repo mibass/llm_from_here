@@ -83,7 +83,7 @@ def execute_plugins(yaml_file, clear_cache=False):
             try:
                 module = importlib.import_module(f'{plugin_name}')
                 plugin_class = getattr(module, plugin_class)
-                plugin_instance = plugin_class()
+                #plugin_instance = plugin_class()
                 logger.info(
                     f"Plugin '{plugin_name}' has been imported successfully.")
             except AttributeError:
@@ -97,8 +97,10 @@ def execute_plugins(yaml_file, clear_cache=False):
             retries = 0
             while retries < plugin_retries:
                 try:
-                    plugin_results = plugin_instance.execute(
-                        plugin_params, global_results, plugin_instance_name=name_key)
+                    #plugin_results = plugin_instance.execute(
+                    #    plugin_params, global_results, plugin_instance_name=name_key)
+                    plugin_instance = plugin_class(plugin_params, global_results, plugin_instance_name=name_key)
+                    plugin_results = plugin_instance.execute()
                     break
                 except (ValidationError, AssertionError) as e:
                     if plugin_retries > 1:
@@ -128,9 +130,6 @@ def execute_plugins(yaml_file, clear_cache=False):
 
         # Merge prepended results into global results
         global_results.update(prepended_results)
-
-        # Log the contents of global_results
-        #logger.info(f"global_results after executing '{plugin_name}': {global_results}")
         
         
     #dump the full global_results to yaml file in the output folder

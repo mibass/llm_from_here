@@ -7,7 +7,11 @@ import pathvalidate
 load_dotenv()  # take environment variables from .env.
 
 class FreeSoundFetch:
-    def __init__(self, out_dir="."):
+    def __init__(self, params, global_results, plugin_instance_name, out_dir="."):
+        self.params = params
+        self.global_results = global_results
+        self.plugin_instance_name = plugin_instance_name
+
         self.client = freesound.FreesoundClient()
         self.client.set_token(os.getenv('FREESOUND_API_KEY'), "token")
         self.temp_files = []
@@ -45,12 +49,12 @@ class FreeSoundFetch:
             if i>=num_samples:
                 break
 
-    def execute(self, params, global_params, plugin_instance_name):
-        query = params.get('query')
-        num_samples = params.get('num_samples', 1)
-        filter_params = params.get('filter_params', {})
-        if 'out_dir' in global_params:
-            self.out_dir = params.get('out_dir')
+    def execute(self):
+        query = self.params.get('query')
+        num_samples = self.params.get('num_samples', 1)
+        filter_params = self.params.get('filter_params', {})
+        if 'out_dir' in self.global_results:
+            self.out_dir = self.params.get('out_dir')
         if not os.path.isdir(self.out_dir):
             os.makedirs(self.out_dir, exist_ok=True)
         self.search_and_download_top_samples(query, num_samples, filter_params)
