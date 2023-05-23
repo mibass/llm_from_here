@@ -6,9 +6,6 @@ import pathvalidate
 
 load_dotenv()  # take environment variables from .env.
 
-#TODO: sanitze file names like 
-#FileNotFoundError: [Errno 2] No such file or directory: "/Users/matthewbass/Documents/modules/pymb/lfh/src/../outputs/show_run74/Neurofunk/ D'n'B Style Distorted Synth Bass Wob.wav"
-
 class FreeSoundFetch:
     def __init__(self, out_dir="."):
         self.client = freesound.FreesoundClient()

@@ -11,6 +11,7 @@ class ChatApp:
         self.messages = [
             {"role": "system", "content": system_message},
         ]
+        self.system_message = system_message
         self.responses = []
 
     def chat(self, message, strip_quotes=False):
@@ -27,9 +28,10 @@ class ChatApp:
 
     def reset_conversation(self):
         self.messages = [
-            {"role": "system", "content": """You are a big shot new york live show producer, writer, and performer. You are current the show runner for the Live From Here show and are calling all the shots. You are very emotional and nostalgic and like to listen to music, podcasts, npr, and long-form improv comedy."""},
+            {"role": "system", "content": self.system_message},
         ]
         self.responses = []
+        self.system_message
 
     def save_conversation(self, file_path):
         with open(file_path, 'w') as f:

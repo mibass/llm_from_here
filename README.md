@@ -68,40 +68,4 @@ Optional flag:
 
 Make sure to provide the path to your YAML configuration file. The script will execute plugins defined in the YAML file, store results in the output folder, and log the execution details.
 
-### TODO
-
-*Bugs:*
-* mismatched intros to segments
-
-*showrunner:*
-* add YAML schema validation
-
-
-*Audio:*
-* Add continuous audience background noise
-* Improve applause overlaps and tail
-* Investigate aubio for onset detection and detecting music starts: https://github.com/aubio/aubio/tree/master/python/demos
-* Investigate compression in pydub
-* in the intro, after the spoken intro is done, ramp the gain of the background music back up
-* add room tone (e.g. audience in theater like this one https://www.youtube.com/watch?v=7Yyy-coFMGc)
-
-*TTS:*
-* reduce uhhs in bark
-* optimize bark parameters
-
-
-*Segment ideas:*
-* story
-* interview
-* improv scene
-* outro
-
-*prompts:*
-
-
-*YT search*:
-* for search, add support for topicId filters https://developers.google.com/youtube/v3/docs/search/list#topicId
-* add sorting by rating or viewCount https://developers.google.com/youtube/v3/docs/search/list#order
-* add support for videoDuration filters: https://developers.google.com/youtube/v3/docs/search/list#videoDuration
-
 

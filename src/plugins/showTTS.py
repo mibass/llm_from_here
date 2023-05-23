@@ -135,7 +135,7 @@ class ShowTextToSpeech:
             print("Cannot print/play audio sample in this environment.")
     
     
-#are we in main?
+
 if __name__ == "__main__":
     import sys
     #get command line args

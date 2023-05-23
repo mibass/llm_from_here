@@ -1,6 +1,4 @@
 global_params:
-  global_param1: value1
-  global_param2: value2
 
 plugins:
   - name: intro
@@ -205,20 +203,22 @@ plugins:
         - guests_audio_stitch_stitched_audio_file
 
 
-  # - name: lfh_rss
-  #   plugin: podcastRssManager
-  #   class: podcastRssManager
-  #   params:
-  #     podcast_title: LLM From Here
-  #     final_guests_list_variable: guests_audio_segments
-  #     podcast_description_template: >
-  #       On tonight's episode of LLM From Here:
-  #       {% for guest in guests_audio_segments %}
-  #       {% if guest.result %}
-  #       Title: {{ guest.result.title }}
-  #       Link: {{ guest.result.video_url }}
-  #       {% endif %}
-  #       {% endfor %}
-  #     podcast_base_url: https://www.llmfromhere.org/
-  #     podcast_file_name_final_template: llm_from_here_{{ lfh_rss_date.strftime('%Y%m%d') }}.mp3
-  #     output_xml_file: llm_from_here_podcast_rss.xml
+  - name: lfh_rss
+    plugin: podcastManager
+    class: PodcastManager
+    params:
+      podcast_title: LLM From Here - Episode {{ episode_number }}
+      final_guests_list_variable: guests_audio_segments
+      source_file_name_variable: final_audio_stitch_stitched_audio_file
+      podcast_description_template: >
+        On tonight's episode of LLM From Here:
+        {% for guest in guests_audio_segments %}
+        {% if guest.result %}
+        Title: {{ guest.result.title }}
+        Link: {{ guest.result.video_url }}
+        {% endif %}
+        {% endfor %}
+        Generated on {{ gen_date.strftime('%Y-%m-%d') }} by LLM From Here}}
+        See https://github.com/mibass/llm_from_here for more info or to contribute.
+      podcast_feed_url: https://feed.podbean.com/llmfromhere/feed.xml
+      podcast_file_name_final_template: llm_from_here_{{ gen_date.strftime('%Y%m%d') }}_episode_{{ episode_number }}.mp3
