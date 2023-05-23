@@ -14,30 +14,32 @@ def match_target_amplitude(sound, target_dBFS=TARGET_AMPLITUDE):
 
 class StitchAudio():
 
-    def __init__(self):
-        pass
+    def __init__(self, params, global_results, plugin_instance_name):
+        self.params = params
+        self.global_results = global_results
+        self.plugin_instance_name = plugin_instance_name
 
-    def execute(self, parms, global_parms, plugin_instance_name):
+    def execute(self):
 
-        segments_object = parms.get('segments_object', None)
-        data = global_parms.get(segments_object, None)
-        output_folder = global_parms['output_folder']
-        output_format = parms.get('output_format', 'wav')
+        segments_object = self.params.get('segments_object', None)
+        data = self.global_results.get(segments_object, None)
+        output_folder = self.global_results['output_folder']
+        output_format = self.params.get('output_format', 'wav')
         if segments_object:
             file_path = os.path.join(
                 output_folder, segments_object + "_merged."+output_format)
         else:
-            file_path = os.path.join(output_folder, parms.get(
+            file_path = os.path.join(output_folder, self.params.get(
                 'name', '')+"_merged."+output_format)
         applause_crossfade_duration = 300
-        segment_type_key = parms.get('segment_type_key', 'guest_category')
-        segment_filename_key = parms.get('segment_filename_key', 'filename')
-        segment_type_map = parms.get('segment_type_map', {})
+        segment_type_key = self.params.get('segment_type_key', 'guest_category')
+        segment_filename_key = self.params.get('segment_filename_key', 'filename')
+        segment_type_map = self.params.get('segment_type_map', {})
 
         merged_audio = AudioSegment.silent(duration=1000)
         if data is None:
             # pull data from segments_list
-            segments_list = parms.get('segments_list', None)
+            segments_list = self.params.get('segments_list', None)
             if segments_list is None:
                 logger.error(
                     "No segments list or segments_object found in settings/global parameters.")
@@ -46,7 +48,7 @@ class StitchAudio():
             data = []
             for segment in segments_list:
                 data.append({'speaker': 'spoken',
-                            'filename': global_parms[segment]})
+                            'filename': self.global_results[segment]})
             logger.info(f"Using segments_list to generate audio: {data}")
 
         background_music_filename = None
@@ -91,7 +93,7 @@ class StitchAudio():
                 silence_thresh=-50, silence_len=50, padding=0)
             music_volume_before = music.dBFS
             music = match_target_amplitude(music)
-            music = music.apply_gain(parms.get('background_music_gain', -5))
+            music = music.apply_gain(self.params.get('background_music_gain', -5))
             logger.info(
                 f" Changed music volume from {music_volume_before} to { music.dBFS}.")
 

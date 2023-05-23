@@ -11,7 +11,10 @@ from podcastManager import PodcastManager
 
 class TestPodcastManager(unittest.TestCase):
     def setUp(self):
-        self.podcast_manager = PodcastManager()
+        params = {}
+        global_results = {}
+        plugin_instance_name = 'test_plugin'
+        self.podcast_manager = PodcastManager(params, global_results, plugin_instance_name)
 
     @patch('podcastManager.Template') 
     def test_generate_description(self, mock_template):

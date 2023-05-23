@@ -12,7 +12,9 @@ class TestFreeSound(unittest.TestCase):
     def setUp(self):
         # Mock the Freesound API key
         os.environ['FREESOUND_API_KEY'] = 'mock_key'
-        self.free_sound = FreeSoundFetch()
+        params = {'query': 'query', 'num_samples': 1}
+        global_params = {}
+        self.free_sound = FreeSoundFetch(params, global_params, 'test')
 
     @patch.object(FreeSoundFetch, 'search_samples')
     def test_search_and_download_top_samples(self, mock_search_samples):
@@ -35,9 +37,8 @@ class TestFreeSound(unittest.TestCase):
         mock_search_samples.return_value = [mock_sound]
 
         # Test the method
-        params = {'query': 'query', 'num_samples': 1}
-        global_params = {}
-        result = self.free_sound.execute(params, global_params, 'test')
+
+        result = self.free_sound.execute()
         self.assertEqual(result, {'temp_files': ['./mock_sound.wav']})
 
 

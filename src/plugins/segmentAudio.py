@@ -13,10 +13,14 @@ logger = logging.getLogger(__name__)
 
 
 class SegmentAudio():
-    def __init__(self):
+    def __init__(self, params, global_results, plugin_instance_name):
         self.show_tts = showTTS.ShowTextToSpeech()
         self.freesound_fetch = freesoundfetch.FreeSoundFetch()
         self.yt_fetch = ytfetch.YtFetch()
+        self.chat_app_object = global_results.get(params.get('chat_app_object', 'intro_chat_app'), None)
+        self.global_results = global_results
+        self.params = params
+        self.plugin_instance_name = plugin_instance_name
 
     def applause_generator(self, text, output_file):
         # extract the duration from the text
@@ -171,12 +175,11 @@ class SegmentAudio():
 
         return new_data
 
-    def execute(self, params, global_results, plugin_instance_name):
-        chat_app_object = params.get('chat_app_object', 'intro_chat_app')
-        data = self.generate_audio_segments(global_results[params['segments_object']],
-                                            global_results['output_folder'],
-                                            params,
-                                            plugin_instance_name,
-                                            chat_app=global_results.get(chat_app_object, None))
+    def execute(self):
+        data = self.generate_audio_segments(self.global_results[self.params['segments_object']],
+                                            self.global_results['output_folder'],
+                                            self.params,
+                                            self.plugin_instance_name,
+                                            chat_app=self.chat_app_object)
 
         return {'segments': data}

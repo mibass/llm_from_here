@@ -206,6 +206,8 @@ plugins:
   - name: lfh_rss
     plugin: podcastManager
     class: PodcastManager
+    cache: True
+    cache_buster: 1
     params:
       podcast_title: LLM From Here - Episode {{ episode_number }}
       final_guests_list_variable: guests_audio_segments
@@ -222,3 +224,10 @@ plugins:
         See https://github.com/mibass/llm_from_here for more info or to contribute.
       podcast_feed_url: https://feed.podbean.com/llmfromhere/feed.xml
       podcast_file_name_final_template: llm_from_here_{{ gen_date.strftime('%Y%m%d') }}_episode_{{ episode_number }}.mp3
+
+
+  # - name: lfh_podbean
+  #   plugin: podbeanManager
+  #   class: PodbeanManager
+  #   params:
+
