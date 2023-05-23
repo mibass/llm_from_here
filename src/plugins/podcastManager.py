@@ -1,3 +1,4 @@
+from common import log_exception
 import yaml
 from jinja2 import Template
 import feedparser
@@ -10,24 +11,44 @@ import functools
 
 logger = logging.getLogger(__name__)
 
-from common import log_exception
 
 class PodcastManager:
     def __init__(self, params, global_results, plugin_instance_name):
         self.params = params
         self.global_results = global_results
         self.plugin_instance_name = plugin_instance_name
-        
-        self.podcast_title_template = None
-        self.final_guests_list_variable = None
-        self.podcast_description_template = None
-        self.podcast_feed_url = None
-        self.podcast_file_name_final_template = None
+
+        self.podcast_title_template = self.params.get('podcast_title')
+        self.final_guests_list_variable = self.params.get(
+            'final_guests_list_variable')
+        self.podcast_description_template = self.params.get(
+            'podcast_description_template')
+        self.podcast_feed_url = self.params.get('podcast_feed_url')
+        self.podcast_file_name_final_template = self.params.get(
+            'podcast_file_name_final_template')
+
+        # get global results
+        self.file_name = self.global_results.get(
+            self.params.get('source_file_name_variable'))
+        logger.info(f"Found source file name: {self.file_name} ")
+
+        self.guests_audio_segments = self.global_results.get(
+            self.final_guests_list_variable, [])
+        self.guests_audio_segments_key = self.params.get(
+            'final_guests_list_key')
 
     @log_exception(logger.error)
-    def generate_description(self, guests_audio_segments, gen_date=datetime.today()):
+    def generate_distinct_guests(self, list_of_dicts, key):
+        return list({d[key] for d in list_of_dicts if key in d})
+
+    @log_exception(logger.error)
+    def generate_description(self, guests_audio_segments, guest_key, gen_date=datetime.today()):
         template = Template(self.podcast_description_template)
-        return template.render(guests_audio_segments=guests_audio_segments, gen_date=gen_date)
+
+        distinct_guests = self.generate_distinct_guests(
+            guests_audio_segments, guest_key)
+
+        return template.render(guests_audio_segments=distinct_guests, gen_date=gen_date)
 
     @log_exception(logger.error)
     def generate_podcast_title(self, episode_number):
@@ -59,40 +80,28 @@ class PodcastManager:
     def copy_file_to_final_destination(self, gen_date=datetime.today()):
         final_file_name = self.generate_file_name(gen_date)
         original_file_directory = os.path.dirname(self.file_name)
-        final_file_path = os.path.join(original_file_directory, final_file_name)
+        final_file_path = os.path.join(
+            original_file_directory, final_file_name)
         shutil.copy(self.file_name, final_file_path)
         return final_file_path
 
     @log_exception(logger.error)
     def execute(self):
-        
-        self.podcast_title_template = self.params.get('podcast_title')
-        self.final_guests_list_variable = self.params.get('final_guests_list_variable')
-        self.podcast_description_template = self.params.get('podcast_description_template')
-        self.podcast_feed_url = self.params.get('podcast_feed_url')
-        self.podcast_file_name_final_template = self.params.get('podcast_file_name_final_template')
-        
-        
-        #get global results
-        self.file_name = self.global_results.get(self.params.get('source_file_name_variable'))
-        logger.info(f"Found source file name: {self.file_name} ")
-        
-        
-        guests_audio_segments = self.global_results.get(self.final_guests_list_variable, [])
-        
-        logger.info(f"Generating podcast description with guests: {guests_audio_segments}")
+        logger.info(
+            f"Generating podcast description with guests: {self.guests_audio_segments} and key {self.guests_audio_segments_key}")
 
-        description = self.generate_description(guests_audio_segments)
+        description = self.generate_description(
+            self.guests_audio_segments, self.guests_audio_segments_key)
         logger.info(f"Generated podcast description: {description}")
-        
+
         episode_number = self.get_latest_episode_number() + 1
         logger.info(f"Generated episode number: {episode_number}")
-        
+
         title = self.generate_podcast_title(episode_number)
         logger.info(f"Generated podcast title: {title}")
-        
+
         final_file_path = self.copy_file_to_final_destination()
-        logger.info (f"Copied file to final destination: {final_file_path}")
+        logger.info(f"Copied file to final destination: {final_file_path}")
         return {
             'podcast_description': description,
             'podcast_title': title,

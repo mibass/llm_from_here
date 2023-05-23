@@ -20,7 +20,7 @@ class TestPodcastManager(unittest.TestCase):
     def test_generate_description(self, mock_template):
         mock_template.return_value.render.return_value = 'Test Description'
         self.podcast_manager.podcast_description_template = 'test_template'
-        result = self.podcast_manager.generate_description([])
+        result = self.podcast_manager.generate_description([],'')
         self.assertEqual(result, 'Test Description')
 
     @patch('podcastManager.Template')
