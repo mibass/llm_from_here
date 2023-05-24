@@ -43,6 +43,7 @@ plugin_cache = SqliteDict('./plugin_cache.sqlite', autocommit=True)
 
 # Read the YAML file
 
+
 def execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_name, retries=1):
     retry_count = 0
 
@@ -51,11 +52,13 @@ def execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_
         nonlocal retry_count
         retry_count += 1
         try:
-            plugin_instance = plugin_class(plugin_params, global_results, plugin_instance_name)
+            plugin_instance = plugin_class(
+                plugin_params, global_results, plugin_instance_name)
             plugin_results = plugin_instance.execute()
             return plugin_results
         except Exception as e:
-            logger.exception(f"Exception while executing plugin '{plugin_instance_name}': {e}")
+            logger.exception(
+                f"Exception while executing plugin '{plugin_instance_name}': {e}")
             if retry_count < retries:
                 logger.info(f"Retrying plugin '{plugin_instance_name}'")
                 raise e
@@ -119,7 +122,8 @@ def execute_plugins(yaml_file, clear_cache=False):
                 logger.critical(f"Module '{plugin_name}' not found.")
                 raise
 
-            plugin_results = execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_name=name_key)
+            plugin_results = execute_plugin(
+                plugin_class, plugin_params, global_results, plugin_instance_name=name_key, retries=plugin_retries)
             # if enabled, attempt to execute the plugin until there are no validation or assertion errors
             # retries = 0
             # while retries < plugin_retries:
@@ -157,9 +161,8 @@ def execute_plugins(yaml_file, clear_cache=False):
 
         # Merge prepended results into global results
         global_results.update(prepended_results)
-        
-        
-    #dump the full global_results to yaml file in the output folder
+
+    # dump the full global_results to yaml file in the output folder
     with open(os.path.join(output_folder, 'global_results.yaml'), 'w') as f:
         yaml.dump(global_results, f)
 
