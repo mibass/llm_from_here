@@ -49,7 +49,8 @@ class YtFetch():
                 'preferredquality': '192',
             }],
             'outtmpl': output_file,
-            'nocheckcertificate': True,  # Add this line
+            'nocheckcertificate': True, 
+            "quiet": True
         }
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
