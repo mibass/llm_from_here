@@ -5,7 +5,6 @@ from jsonschema.exceptions import ValidationError
 import logging
 import sys
 import fnmatch
-from collections import Counter
 from fuzzywuzzy import process
 
 from common import log_exception
@@ -22,20 +21,19 @@ def validate_json_response(response, schema):
         logger.error(f"Expected schema: {schema}")
         raise e
 
-
-def filter_guests_count(guests, max_occurrences_dict):
-    # Count the occurrences of each guest category
-    category_counter = Counter()
-
-    # Filter the list based on the maximum occurrences
+def filter_guests_count(guests, guest_count_filters):
+    count_per_category = {}
     filtered_guests = []
+    
     for guest in guests:
-        category = guest['guest_category']
-        max_occurrences = max_occurrences_dict.get(category)
-        if max_occurrences is None or category_counter[category] < max_occurrences:
+        category = guest['guest_category'].lower()
+        if category not in guest_count_filters:
             filtered_guests.append(guest)
-            category_counter[category] += 1
-
+        elif category not in count_per_category or count_per_category[category] < guest_count_filters[category]:
+            count_per_category.setdefault(category, 0)
+            count_per_category[category] += 1
+            filtered_guests.append(guest)
+            
     return filtered_guests
 
 
@@ -131,17 +129,19 @@ class Intro:
 
     def apply_guest_list_filter(self):
         guest_filter = self.params.get('guest_name_filters', [])
-        if guest_filter != []:
+        if guest_filter:
             logger.info(f"Found guests filter: {guest_filter}")
-            original_guests = self.guests
-            self.guests = [
-                guest for guest in self.guests if not any(
-                    fnmatch.fnmatch(guest['guest_name'].lower(), pattern.lower())
-                    for pattern in guest_filter
-                )
-            ]
-            if len(original_guests) != len(self.guests):
-                removed_guests = list(set(original_guests) - set(self.guests))
+            removed_guests = []
+            filtered_guests = []
+            for guest in self.guests:
+                if not any(fnmatch.fnmatch(guest['guest_name'].lower(), pattern.lower()) for pattern in guest_filter):
+                    filtered_guests.append(guest)
+                else:
+                    removed_guests.append(guest)
+
+            self.guests = filtered_guests
+
+            if removed_guests:
                 logger.info(f"Guests list filter applied. Guests removed: {removed_guests}")
 
     def apply_guest_count_filter(self):
@@ -153,6 +153,7 @@ class Intro:
     @log_exception(logger.error)
     def check_guests(self):
         assert len(self.guests) > 0, "Number of guests must be greater than zero."
+        assert len(self.guests) < 10, "Number of guests must be less than 10."
 
     def execute(self):
         self.check_guests()

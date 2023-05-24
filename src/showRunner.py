@@ -8,7 +8,9 @@ from dotenv import load_dotenv
 import hashlib
 import argparse
 from jsonschema.exceptions import ValidationError
+from json.decoder import JSONDecodeError
 import time
+from retry import retry
 
 # load env variables
 
@@ -40,6 +42,25 @@ global_results = {}
 plugin_cache = SqliteDict('./plugin_cache.sqlite', autocommit=True)
 
 # Read the YAML file
+
+def execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_name, retries=1):
+    retry_count = 0
+
+    @retry((AssertionError, ValidationError, JSONDecodeError), tries=retries, delay=2)
+    def exec():
+        nonlocal retry_count
+        retry_count += 1
+        try:
+            plugin_instance = plugin_class(plugin_params, global_results, plugin_instance_name)
+            plugin_results = plugin_instance.execute()
+            return plugin_results
+        except Exception as e:
+            logger.exception(f"Exception while executing plugin '{plugin_instance_name}': {e}")
+            if retry_count < retries:
+                logger.info(f"Retrying plugin '{plugin_instance_name}'")
+                raise e
+            raise e
+    return exec()
 
 
 def execute_plugins(yaml_file, clear_cache=False):
@@ -98,27 +119,28 @@ def execute_plugins(yaml_file, clear_cache=False):
                 logger.critical(f"Module '{plugin_name}' not found.")
                 raise
 
+            plugin_results = execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_name=name_key)
             # if enabled, attempt to execute the plugin until there are no validation or assertion errors
-            retries = 0
-            while retries < plugin_retries:
-                try:
-                    #plugin_results = plugin_instance.execute(
-                    #    plugin_params, global_results, plugin_instance_name=name_key)
-                    plugin_instance = plugin_class(plugin_params, global_results, plugin_instance_name=name_key)
-                    plugin_results = plugin_instance.execute()
-                    break
-                except (ValidationError, AssertionError) as e:
-                    if plugin_retries > 1:
-                        logger.error("Caught exception:", str(e))
-                        retries += 1
-                        logger.info(f"Retry {retries} of {plugin_retries}")
-                        time.sleep(1)  # Wait for 1 second before retrying
-                    else:
-                        raise e
+            # retries = 0
+            # while retries < plugin_retries:
+            #     try:
+            #         #plugin_results = plugin_instance.execute(
+            #         #    plugin_params, global_results, plugin_instance_name=name_key)
+            #         plugin_instance = plugin_class(plugin_params, global_results, plugin_instance_name=name_key)
+            #         plugin_results = plugin_instance.execute()
+            #         break
+            #     except (ValidationError, AssertionError) as e:
+            #         if plugin_retries > 1:
+            #             logger.error("Caught exception:", str(e))
+            #             retries += 1
+            #             logger.info(f"Retry {retries} of {plugin_retries}")
+            #             time.sleep(1)  # Wait for 1 second before retrying
+            #         else:
+            #             raise e
 
-            if retries == plugin_retries:
-                raise Exception(
-                    f"Exceeded maximum retries of {plugin_retries}. Function failed.")
+            # if retries == plugin_retries:
+            #     raise Exception(
+            #         f"Exceeded maximum retries of {plugin_retries}. Function failed.")
 
             logger.info(
                 f"Plugin '{plugin_name}' has been executed successfully.")

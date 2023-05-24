@@ -23,7 +23,7 @@ class ChatApp:
         self.system_message = system_message
         self.responses = []
 
-    @retry((openai.error.RateLimitError, openai.error.AuthenticationError), tries=5, delay=2, backoff=2)
+    @retry((openai.error.RateLimitError, openai.error.AuthenticationError, openai.error.APIError), tries=5, delay=2, backoff=2)
     def chat(self, message, strip_quotes=False):
         """
         Sends a message to the OpenAI API and returns the assistant's response.
