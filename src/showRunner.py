@@ -25,6 +25,11 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 plugins_dir = os.path.join(script_dir, 'plugins')
 outputs_dir = os.path.join(script_dir, '../outputs')
 src_dir = os.path.join(script_dir, '/src')
+
+# Create the output directory if it doesn't exist
+if not os.path.exists(outputs_dir):
+    os.makedirs(outputs_dir)
+
 sys.path.append(plugins_dir)
 sys.path.append(src_dir)
 
