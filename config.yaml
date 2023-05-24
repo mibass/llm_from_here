@@ -232,5 +232,6 @@ plugins:
       episode_number_variable: lfh_rss_episode_number
       description_variable: lfh_rss_podcast_description
       title_variable: lfh_rss_podcast_title
+      max_episodes: 3
       
 

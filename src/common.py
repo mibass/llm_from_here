@@ -1,6 +1,5 @@
 import functools
 
-import functools
 
 def log_exception(logger_error_func):
     def decorator(func):
@@ -12,3 +11,4 @@ def log_exception(logger_error_func):
                 raise
         return wrapper
     return decorator
+

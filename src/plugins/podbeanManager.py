@@ -25,6 +25,7 @@ class PodbeanManager:
         self.file_path = global_results.get(params.get('file_path_variable'))
         self.episode_number = global_results.get(
             params.get('episode_number_variable'))
+        self.max_episodes = params.get('max_episodes', 5)
 
         # error if any of these is None
         if not self.description:
@@ -67,9 +68,9 @@ class PodbeanManager:
         else:
             raise Exception(f'Failed to get episodes: {response.content}')
 
-    def upload_episode(self, episode, max_episodes=5):
-        if len(self.episodes) >= max_episodes:
-            logging.info(f"Deleting oldest episode; max episodes: {max_episodes}, current episodes: {len(self.episodes)}")
+    def upload_episode(self):
+        if len(self.episodes) >= self.max_episodes:
+            logging.info(f"Deleting oldest episode; max episodes: {self.max_episodes}, current episodes: {len(self.episodes)}")
             self.delete_oldest_episode()
         file_key = self._upload()
 
@@ -200,7 +201,7 @@ class PodbeanManager:
         logger.info(f"Found {len(self.episodes)} episodes in feed")
         logger.info(f"Last episodes title was {self.episodes[0]['title']}")
 
-        file_key = self.upload_episode(self.file_path)
+        file_key = self.upload_episode()
         logger.info(f"Uploaded file and got key {file_key} ")
 
         publish_response = self.publish_episode(title=self.title, content=self.description,
