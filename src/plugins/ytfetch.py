@@ -2,7 +2,6 @@ import os
 import google_auth_oauthlib.flow
 import googleapiclient.discovery
 import googleapiclient.errors
-from IPython.display import Image, display
 import youtube_dl
 from pydub import AudioSegment
 import time

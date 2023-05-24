@@ -1,4 +1,3 @@
-from IPython.display import Audio, display
 import numpy as np
 import re
 
@@ -126,13 +125,6 @@ class ShowTextToSpeech:
         logger.info(f'Successfully generated audio file: {output_file}')
         self.audio_file = output_file
         
-    def print_sample(self):
-        try:
-            # Check if running in an interactive notebook environment
-            #Audio(np.concatenate(self.pieces), rate=SAMPLE_RATE)
-            display(Audio(self.audio_file))
-        except NameError:
-            print("Cannot print/play audio sample in this environment.")
     
     
 
