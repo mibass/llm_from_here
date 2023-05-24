@@ -19,6 +19,7 @@ These instructions will help you set up the project environment using Conda.
 
 - Python 3.10
 - pip
+- ffmpeg
 
 ### Setup
 
