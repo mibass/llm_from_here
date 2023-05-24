@@ -2,8 +2,8 @@ name: Episode Release
 
 on:
   schedule:
-    #- cron: '0 22 * * 6'  # Runs every Saturday at 10pm UTC
-    - cron: '45 * * * *' # Runs every hour at 45 minutes past the hour
+    - cron: '0 22 * * 6'  # Runs every Saturday at 10pm UTC
+  workflow_dispatch:
 
 jobs:
   build:
@@ -13,8 +13,8 @@ jobs:
         id: latestrelease
         run: |
           LATEST_RELEASE_TAG=$(curl --silent "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/latest" | jq -r .tag_name)
-          echo "::set-output name=tag::${LATEST_RELEASE_TAG}"
-          env:
+          echo "tag=${LATEST_RELEASE_TAG}" >> $GITHUB_OUTPUT
+        env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Checkout code
         uses: actions/checkout@v3
