@@ -36,6 +36,7 @@ jobs:
             PODBEAN_CLIENT_ID: ${{ secrets.PODBEAN_CLIENT_ID }}
             PODBEAN_CLIENT_SECRET: ${{ secrets.PODBEAN_CLIENT_SECRET }}
       - name: Upload log file
+        if: always()
         uses: actions/upload-artifact@v3
         with:
           name: log-file
