@@ -1,0 +1,41 @@
+name: Episode Release
+
+on:
+  schedule:
+    - cron: '0 22 * * 6'  # Runs every Saturday at 10pm UTC
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get latest release
+        id: latestrelease
+        run: |
+          LATEST_RELEASE_TAG=$(curl --silent "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/latest" | jq -r .tag_name)
+          echo "::set-output name=tag::${LATEST_RELEASE_TAG}"
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ steps.latestrelease.outputs.tag }}
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10.11'
+          cache: 'pip' # caching pip dependencies
+      - run: pip install -r requirements.txt
+      - name: Run show
+        run: |
+          python src/showRunner.py config.yaml
+        env:
+            OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+            YT_API_KEY: ${{ secrets.YT_API_KEY }}
+            FREESOUND_API_KEY: ${{ secrets.FREESOUND_API_KEY }}
+            PODBEAN_CLIENT_ID: ${{ secrets.PODBEAN_CLIENT_ID }}
+            PODBEAN_CLIENT_SECRET: ${{ secrets.PODBEAN_CLIENT_SECRET }}
+      - name: Upload log file
+        uses: actions/upload-artifact@v3
+        with:
+          name: log-file
+          path: showRunner.log
