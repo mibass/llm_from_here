@@ -13,7 +13,7 @@ jobs:
         id: latestrelease
         run: |
           LATEST_RELEASE_TAG=$(curl --silent "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/latest" | jq -r .tag_name)
-          echo "{tag}={${LATEST_RELEASE_TAG}}" >> $GITHUB_OUTPUT
+          echo "tag=${LATEST_RELEASE_TAG}" >> $GITHUB_OUTPUT
           env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Checkout code
