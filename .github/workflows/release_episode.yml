@@ -36,7 +36,7 @@ jobs:
 
       - name: Run show
         run: |
-          python src/showRunner.py config.yaml
+          python src/showRunner.py configs/config.yaml
         env:
             OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
             YT_API_KEY: ${{ secrets.YT_API_KEY }}

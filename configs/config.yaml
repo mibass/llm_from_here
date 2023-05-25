@@ -45,6 +45,7 @@ plugins:
         "guest_name": "name of guest"
         }]
         All music guests  should repeat 2 to 3 times and be intermixed throughout the show.
+        The total number of entiries in the list should be between 5 and 8.
         The JSON response:
 
       extra_prompts:
@@ -224,14 +225,14 @@ plugins:
       podcast_file_name_final_template: llm_from_here_{{ gen_date.strftime('%Y%m%d') }}_episode_{{ episode_number }}.mp3
 
 
-  - name: lfh_podbean
-    plugin: podbeanManager
-    class: PodbeanManager
-    params:
-      file_path_variable: lfh_rss_podcast_file_path
-      episode_number_variable: lfh_rss_episode_number
-      description_variable: lfh_rss_podcast_description
-      title_variable: lfh_rss_podcast_title
-      max_episodes: 3
+  # - name: lfh_podbean
+  #   plugin: podbeanManager
+  #   class: PodbeanManager
+  #   params:
+  #     file_path_variable: lfh_rss_podcast_file_path
+  #     episode_number_variable: lfh_rss_episode_number
+  #     description_variable: lfh_rss_podcast_description
+  #     title_variable: lfh_rss_podcast_title
+  #     max_episodes: 3
       
 
