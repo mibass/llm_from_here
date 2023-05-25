@@ -26,6 +26,8 @@ class PodcastManager:
         self.podcast_feed_url = self.params.get('podcast_feed_url')
         self.podcast_file_name_final_template = self.params.get(
             'podcast_file_name_final_template')
+        self.podcast_description_character_limit = self.params.get(
+            'podcast_description_character_limit')
 
         # get global results
         self.file_name = self.global_results.get(
@@ -48,7 +50,7 @@ class PodcastManager:
         distinct_guests = self.generate_distinct_guests(
             guests_audio_segments, guest_key)
 
-        return template.render(guests_audio_segments=distinct_guests, gen_date=gen_date)
+        return template.render(guests_audio_segments=distinct_guests, gen_date=gen_date)[0:self.podcast_description_character_limit]
 
     @log_exception(logger.error)
     def generate_podcast_title(self, episode_number):
@@ -69,12 +71,21 @@ class PodcastManager:
 
         feed = feedparser.parse(self.podcast_feed_url)
 
+        # Check for HTTP status
+        if feed.status != 200:
+            raise Exception(f"Failed to retrieve feed, HTTP status: {feed.status}")
+
         for entry in feed.entries:
             match = pattern.search(entry.title)
             if match:
                 episode_numbers.append(int(match.group(1)))
 
-        return max(episode_numbers) if episode_numbers else 0
+        if not episode_numbers:
+            logger.warning("Feed is empty")
+            return 0
+
+        return max(episode_numbers)
+
 
     @log_exception(logger.error)
     def copy_file_to_final_destination(self, gen_date=datetime.today()):

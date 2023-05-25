@@ -199,7 +199,8 @@ class PodbeanManager:
 
         self.get_episodes()
         logger.info(f"Found {len(self.episodes)} episodes in feed")
-        logger.info(f"Last episodes title was {self.episodes[0]['title']}")
+        if self.episodes:
+            logger.info(f"Last episodes title was {self.episodes[0]['title']}")
 
         file_key = self.upload_episode()
         logger.info(f"Uploaded file and got key {file_key} ")

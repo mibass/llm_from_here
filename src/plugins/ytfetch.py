@@ -9,6 +9,7 @@ from isodate import parse_duration
 import random
 import html
 import fnmatch
+from retry import retry
 
 import logging
 logger = logging.getLogger(__name__)
@@ -59,12 +60,12 @@ class YtFetch():
     def search_and_download_audio(self, query, output_file=None):
         video = self.search_video(query)
         video_id = video['video_id']
-        #print(f"Video Title: {video['title']}")
+        logger.info(f"Video Title: {video['title']}")
         if output_file is None:
             output_file = f"{video_id}.wav"
         
         self.download_audio(video['video_url'], output_file)
-        #print(f"Audio saved as {output_file}")
+        logger.info(f"Audio saved as {output_file}")
         
     
     def duration_in_seconds(self, iso_duration):
@@ -151,7 +152,7 @@ class YtFetch():
 
         # If a video was found, download its audio
         video_id = video['video_id']
-        print(f"Video Title: {video['title']}")
+        logger.info(f"Video Title: {video['title']}")
         if output_file is None:
             output_file = f"{video_id}.wav"
         
@@ -180,19 +181,25 @@ class YtFetch():
         video_ids = self.get_playlist_items(playlist_id)
 
         # Retry loop
-        for retry in range(max_retries):
-            random_video_id = random.choice(video_ids)
-            random_video_url = f"https://www.youtube.com/watch?v={random_video_id}"
-            logger.info(f"Chosen Video URL: {random_video_url}")
+        retry_count = 0
 
-            # Get video details
-            video_request = self.youtube.videos().list(
-                part="snippet",
-                id=random_video_id
-            )
-            video_response = video_request.execute()
+        @retry((youtube_dl.utils.ExtractorError, AssertionError), tries=max_retries, delay=2)
+        def download_random_video():
+            nonlocal retry_count, output_file
+            retry_count += 1
+            try:
+                random_video_id = random.choice(video_ids)
+                random_video_url = f"https://www.youtube.com/watch?v={random_video_id}"
+                logger.info(f"Chosen Video URL: {random_video_url}")
 
-            if 'items' in video_response and video_response['items']:
+                # Get video details
+                video_request = self.youtube.videos().list(
+                    part="snippet",
+                    id=random_video_id
+                )
+                video_response = video_request.execute()
+
+                assert 'items' in video_response and video_response['items'], 'No video details found'
                 video_item = video_response['items'][0]
                 video_details = {
                     'video_id': random_video_id,
@@ -200,19 +207,19 @@ class YtFetch():
                     'thumbnail': video_item['snippet']['thumbnails']['high']['url'],
                     'video_url': random_video_url
                 }
-                break  # Exit the retry loop if video details are obtained successfully
+                logger.info(f"Video Title: {video_details['title']}")
 
-            if retry < max_retries - 1:
-                logger.warning(f"Failed to get video details. Retrying with another video in 2 seconds... (Attempt {retry + 1}/{max_retries})")
-                time.sleep(2)  # Wait for 2 seconds before retrying
-        else:
-            logger.error(f"Failed to retrieve video details after {max_retries} attempts.")
-            return None
+                # Download audio
+                if not output_file:
+                    output_file = f"{random_video_id}.wav"
+                self.download_audio(random_video_url, output_file)
+                logger.info(f"Audio saved as {output_file}")
 
-        # Download audio
-        if output_file is None:
-            output_file = f"{random_video_id}.wav"
-        self.download_audio(random_video_url, output_file)
-        print(f"Audio saved as {output_file}")
+                return video_details
+            except Exception as e:
+                logger.error(f"Error downloading video: {e}")
+                if retry_count < max_retries:
+                    logger.info(f"Retrying '")
+                raise e
 
-        return video_details
+        return download_random_video()
