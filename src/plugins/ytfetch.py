@@ -23,7 +23,7 @@ class YtFetch():
         self.last_response = None
         self.video_ids_returned = []
     
-    def search_video(self, query):
+    def search_video(self, query, orderby="relevance"):
         
         request = self.youtube.search().list(
             part="snippet",
@@ -31,7 +31,8 @@ class YtFetch():
             q=query,
             videoDefinition="high",
             maxResults=1,
-            fields="items(id(videoId),snippet(publishedAt,channelId,title,description,thumbnails))"
+            fields="items(id(videoId),snippet(channelId,title,description,thumbnails))",
+            order=orderby
         )
         response = request.execute()
         self.last_response = response
@@ -73,7 +74,7 @@ class YtFetch():
         duration = parse_duration(iso_duration)
         return duration.total_seconds()
 
-    def search_video_with_duration(self, query, min_duration, max_duration, duration_search_filter = None, description_filters=None):
+    def search_video_with_duration(self, query, min_duration, max_duration, duration_search_filter = None, description_filters=None, orderby="relevance"):
         """Searches for a video that falls within the specified duration range"""
 
         # First, perform a general search
@@ -84,7 +85,8 @@ class YtFetch():
             videoDefinition="any",
             videoDuration="any" if duration_search_filter is None else duration_search_filter,
             maxResults=20,
-            fields="items(id(videoId),snippet(publishedAt,channelId,title,description,thumbnails))"
+            fields="items(id(videoId),snippet(channelId,title,description,thumbnails))",
+            order=orderby #rating, relevance, viewCount, date, title, videoCount
         )
         response = request.execute()
 
@@ -183,7 +185,9 @@ class YtFetch():
         # Retry loop
         retry_count = 0
 
-        @retry((youtube_dl.utils.ExtractorError, AssertionError), tries=max_retries, delay=2)
+        @retry((youtube_dl.utils.ExtractorError, 
+                AssertionError,
+                youtube_dl.utils.DownloadError), tries=max_retries, delay=2)
         def download_random_video():
             nonlocal retry_count, output_file
             retry_count += 1
@@ -219,7 +223,7 @@ class YtFetch():
             except Exception as e:
                 logger.error(f"Error downloading video: {e}")
                 if retry_count < max_retries:
-                    logger.info(f"Retrying '")
+                    logger.info(f"Retrying download...{retry_count} of {max_retries}")
                 raise e
 
         return download_random_video()
