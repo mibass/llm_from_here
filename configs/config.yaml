@@ -14,12 +14,12 @@ plugins:
 
       script_prompt: >
         Write a script for the intro to be read Verbatim by Chris Thile.  
-        Chris should announce a guest list that should include 2 or 3 musical acts, 1 or 2 comedians, and 1 author or actor.  
+        Chris should announce a guest list that should include 2 or 3 musical acts, 1 or 2 comedians, 1 author or actor, and 1 improv comedian who has been on the Comedy Bang Bang podcast.  
         These should be actual people that exist and Chris should say their real names.  
         This intro segment should be about 5 minutes long and end with Chris announcing the guests.  
         Applause breaks and duration should be added and denoted with [APPLAUSE duration x] where x is in seconds and could be between 3 and 6 seconds, for example:
           [APPLAUSE 5 seconds]
-        A musical background will be played by Chris and the band underneath his introduction, this should be described and denoted in the script with [BACKGROUND MUSIC] and should occur only once at the beginning, and with one or more of the descriptors bluegrass, folk, country, rock, jazz, classical. For example :
+        A musical background will be played by Chris and the band underneath his introduction, this should be described and denoted in the script with [BACKGROUND MUSIC] and should occur only once at the beginning, and with one or more of the descriptors bluegrass, folk, country, rock, jazz, classical, post-rock. For example :
           [BACKGROUND MUSIC: bluegrass]
 
       json_script_prompt: >
@@ -39,13 +39,15 @@ plugins:
       json_guest_prompt: >
         Now return those guests as JSON. 
         Do not include any explanations, only provide a RFC8259 compliant JSON response following this format without deviation.
-        The possible guest_categories are: Music, Comedy, Author, Actor
+        The possible guest_categories are: Music, Comedy, Author, Actor, Improv
         [{
         "guest_category": "category of guest",
         "guest_name": "name of guest"
         }]
         All music guests  should repeat 2 to 3 times and be intermixed throughout the show.
-        The total number of entiries in the list should be between 5 and 8.
+        All Comedy, Author, Actor, and Improv guests should only appear once.
+        The total number of entries in the list should be between 7 and 10.
+        The only possible guest_categories are: Music, Comedy, Author, Actor, Improv
         The JSON response:
 
       extra_prompts:
@@ -56,6 +58,16 @@ plugins:
             He should talk to someone, see something happen, and make something happen in each story. He should relay at least one short conversation he had.
             Use a lot of contractions often and as many colloquialisms as possible.
             You do not speak, just tell the story.
+        - name: outro
+          prompt: >
+            Now write an outro for Chris to read. 
+            It should be about 1 to 2 minutes long and should include a call to action for the audience to do something. 
+            It should be a single paragraph and should be written in the first person.
+            It should thank the guests.
+            A musical background will be played by Chris and the band underneath his introduction, this should be described and denoted in the script with [BACKGROUND MUSIC] and should occur only once at the beginning, and with one or more of the descriptors bluegrass, folk, country, rock, jazz, classical, post-rock. For example :
+              [BACKGROUND MUSIC: bluegrass]
+              [BACKGROUND MUSIC: post-rock]
+
 
       guest_name_filters: 
         - n/a
@@ -67,6 +79,8 @@ plugins:
         - no one
         - no guests
         - no guests this week
+        - tbd
+        - to be determined
         - "*name*"
         - "[*"
         - "comedi*"
@@ -80,12 +94,14 @@ plugins:
         - comedy
         - author
         - actor
+        - improv
 
       guest_count_filters:
         music: 3
         comedy: 1
         author: 1
         actor: 1
+        improv: 1
 
       
   - name: intro_audio
@@ -178,6 +194,14 @@ plugins:
             duration_search_filter: medium
             duration_min_sec: 300
             duration_max_sec: 660
+        improv:
+          <<: *default
+          segment_type: youtube_search
+          arguments:
+            additional_query_text:  ("comedy bang bang"|"improv scene"|"improv4humans"|"Spontaneanation")
+            duration_search_filter: medium
+            duration_min_sec: 300
+            duration_max_sec: 660
 
 
   - name: guests_audio_stitch
@@ -225,14 +249,14 @@ plugins:
       podcast_file_name_final_template: llm_from_here_{{ gen_date.strftime('%Y%m%d') }}_episode_{{ episode_number }}.mp3
 
 
-  - name: lfh_podbean
-    plugin: podbeanManager
-    class: PodbeanManager
-    params:
-      file_path_variable: lfh_rss_podcast_file_path
-      episode_number_variable: lfh_rss_episode_number
-      description_variable: lfh_rss_podcast_description
-      title_variable: lfh_rss_podcast_title
-      max_episodes: 3
+  # - name: lfh_podbean
+  #   plugin: podbeanManager
+  #   class: PodbeanManager
+  #   params:
+  #     file_path_variable: lfh_rss_podcast_file_path
+  #     episode_number_variable: lfh_rss_episode_number
+  #     description_variable: lfh_rss_podcast_description
+  #     title_variable: lfh_rss_podcast_title
+  #     max_episodes: 3
       
 

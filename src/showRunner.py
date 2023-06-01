@@ -3,7 +3,6 @@ import yaml
 import os
 import logging
 import sys
-from sqlitedict import SqliteDict
 from dotenv import load_dotenv
 import hashlib
 import argparse
@@ -11,6 +10,7 @@ from jsonschema.exceptions import ValidationError
 from json.decoder import JSONDecodeError
 import time
 from retry import retry
+from pickleDict import PickleDict
 
 # load env variables
 
@@ -39,10 +39,7 @@ sys.path.append(src_dir)
 global_results = {}
 
 # Cache dictionary to store cached plugin results
-plugin_cache = SqliteDict('./plugin_cache.sqlite', autocommit=True)
-
-# Read the YAML file
-
+plugin_cache = PickleDict('cache.pickle', autocommit=True)
 
 def execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_name, retries=1):
     retry_count = 0
@@ -68,7 +65,7 @@ def execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_
 
 def execute_plugins(yaml_file, clear_cache=False):
     if clear_cache:
-        plugin_cache.clear()
+        plugin_cache 
         logger.info("Cache cleared.")
 
     with open(yaml_file) as file:
@@ -163,8 +160,8 @@ def execute_plugins(yaml_file, clear_cache=False):
         global_results.update(prepended_results)
 
     # dump the full global_results to yaml file in the output folder
-    with open(os.path.join(output_folder, 'global_results.yaml'), 'w') as f:
-        yaml.dump(global_results, f)
+    # with open(os.path.join(output_folder, 'global_results.yaml'), 'w') as f:
+    #     yaml.dump(global_results, f)
 
 
 def get_last_run_count(show_name):
@@ -201,6 +198,3 @@ if __name__ == "__main__":
     args = parse_arguments()
 
     execute_plugins(args.yaml_file, args.clear_cache)
-
-    # Close the plugin cache
-    plugin_cache.close()

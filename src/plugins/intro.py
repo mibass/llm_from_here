@@ -33,6 +33,8 @@ def filter_guests_count(guests, guest_count_filters):
             count_per_category.setdefault(category, 0)
             count_per_category[category] += 1
             filtered_guests.append(guest)
+        else:
+            logger.info(f"Guest {guest['guest_category']}:{guest['guest_name']} filtered out due to guest count filter.")
             
     return filtered_guests
 
