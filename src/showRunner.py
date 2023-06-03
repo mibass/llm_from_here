@@ -65,7 +65,7 @@ def execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_
 
 def execute_plugins(yaml_file, clear_cache=False):
     if clear_cache:
-        plugin_cache 
+        plugin_cache.clear()
         logger.info("Cache cleared.")
 
     with open(yaml_file) as file:
