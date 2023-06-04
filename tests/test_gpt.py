@@ -1,8 +1,6 @@
 import unittest
 from unittest.mock import patch, MagicMock
-import sys
-sys.path.append('../src/plugins')
-from gpt import ChatApp  # Your class to test
+from llm_from_here.plugins.gpt import ChatApp  # Your class to test
 
 SYSTEM_MESSAGE="You are a big shot new york live show producer, writer, and performer. You are current the show runner for the Live From Here show and are calling all the shots. You are very emotional and nostalgic and like to listen to music, podcasts, npr, and long-form improv comedy."
 class TestChatApp(unittest.TestCase):

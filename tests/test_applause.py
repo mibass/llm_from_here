@@ -1,8 +1,6 @@
 import unittest
 from pydub import AudioSegment
-import sys, os
-sys.path.append('../src/plugins')
-from applause import generate_applause
+from llm_from_here.plugins.applause import generate_applause
 
 class TestGenerateApplause(unittest.TestCase):
     def test_duration(self):

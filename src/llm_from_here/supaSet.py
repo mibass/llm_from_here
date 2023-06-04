@@ -20,7 +20,7 @@ ON supasets (value, set_name);
 
 It also requires environment variables to be set for SUPASET_URL and SUPASET_KEY.
 """
-from supabase import create_client, Client
+from supabase import create_client
 from uuid import uuid4
 import logging
 import os

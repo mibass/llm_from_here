@@ -1,13 +1,13 @@
 
-import showTTS
+import llm_from_here.plugins.showTTS as showTTS
 import os
 import re
 import shutil
 
-from applause import generate_applause
-import freesoundfetch
-import ytfetch
-import audioTimeline
+from llm_from_here.plugins.applause import generate_applause
+import llm_from_here.plugins.freesoundfetch as freesoundfetch
+import llm_from_here.plugins.ytfetch as ytfetch
+import llm_from_here.plugins.audioTimeline as audioTimeline
 
 import logging
 logger = logging.getLogger(__name__)
@@ -70,8 +70,8 @@ class SegmentsToTimeline():
     def fast_TTS(self, text, output_file):
         self.show_tts.speak(text, output_file, fast=True)
 
-    def slow_TTS(self, text, output_file):
-        self.show_tts.speak(text, output_file, fast=False)
+    # def slow_TTS(self, text, output_file):
+    #     self.show_tts.speak(text, output_file, fast=False)
 
     def youtube_search(self, text, output_file,
                        additional_query_text="",

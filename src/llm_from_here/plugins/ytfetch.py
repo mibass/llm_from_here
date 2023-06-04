@@ -1,9 +1,7 @@
 import os
-import google_auth_oauthlib.flow
 import googleapiclient.discovery
 import googleapiclient.errors
 import youtube_dl
-from pydub import AudioSegment
 import time
 from isodate import parse_duration
 import random

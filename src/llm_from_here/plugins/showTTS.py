@@ -6,7 +6,7 @@ import re
 #     preload_models,
 # )
 # from bark.api import semantic_to_waveform
-from bark import SAMPLE_RATE, generate_audio, preload_models
+# from bark import SAMPLE_RATE, generate_audio, preload_models
 from scipy.io.wavfile import write as write_wav
 from gtts import gTTS
 from pydub import AudioSegment
@@ -66,12 +66,14 @@ class ShowTextToSpeech:
             logger.info(f"Using fast TTS for text: {text}")
             self._speak_gtts(text, output_file)
         else:
-            logger.info(f"Using slow TTS for text: {text}")
-            if not self.models_preloaded:
-                self.models_preloaded = True
-                preload_models(**MODEL_SETTINGS)
-                logger.info(f"Finished preloading models for slow TTS.")
-            self._speak_bark(text, output_file)
+            logger.exception("Slow TTS is not supported yet.")
+            raise NotImplementedError
+            # logger.info(f"Using slow TTS for text: {text}")
+            # if not self.models_preloaded:
+            #     self.models_preloaded = True
+            #     preload_models(**MODEL_SETTINGS)
+            #     logger.info(f"Finished preloading models for slow TTS.")
+            # self._speak_bark(text, output_file)
 
     def _speak_gtts(self, text, output_file):
         #fast version that uses google TTS
@@ -89,41 +91,41 @@ class ShowTextToSpeech:
         logger.info(f'Successfully generated audio file: {output_file}')
         self.audio_file = output_file
         
-    def _speak_bark(self, text, output_file):
-        #https://github.com/suno-ai/bark#-faq
-        #demos: https://replicate.com/suno-ai/bark?prediction=aeqqwzybnbfm7ai2mf5aqkmm7u
-        #slow version that uses Bark
-        GEN_TEMP = 0.7
-        SPEAKER = "v2/en_speaker_6"
+    # def _speak_bark(self, text, output_file):
+    #     #https://github.com/suno-ai/bark#-faq
+    #     #demos: https://replicate.com/suno-ai/bark?prediction=aeqqwzybnbfm7ai2mf5aqkmm7u
+    #     #slow version that uses Bark
+    #     GEN_TEMP = 0.7
+    #     SPEAKER = "v2/en_speaker_6"
 
-        self.pieces = []
-        sentences = split_sentences(text)
-        for sentence in sentences:
-            logger.info(f'Generating bark audio for sentence: {sentence}')
-            # semantic_tokens = generate_text_semantic(
-            #     sentence,
-            #     history_prompt=SPEAKER,
-            #     temp=GEN_TEMP,
-            #     min_eos_p=0.05,  # this controls how likely the generation is to end
-            # )
+    #     self.pieces = []
+    #     sentences = split_sentences(text)
+    #     for sentence in sentences:
+    #         logger.info(f'Generating bark audio for sentence: {sentence}')
+    #         # semantic_tokens = generate_text_semantic(
+    #         #     sentence,
+    #         #     history_prompt=SPEAKER,
+    #         #     temp=GEN_TEMP,
+    #         #     min_eos_p=0.05,  # this controls how likely the generation is to end
+    #         # )
 
-            # audio_array = semantic_to_waveform(semantic_tokens, history_prompt=SPEAKER,)
-            audio_array = generate_audio(sentence, 
-                                         history_prompt=SPEAKER, 
-                                         text_temp=GEN_TEMP,
-                                         silent=True)
-            #convert to 16 bit and trim silence
-            audio_array_16bit = np.int16(audio_array / np.max(np.abs(audio_array)) * 32767)
-            trimmmed_audio_array = trim_silence_np_array(audio_array_16bit, SAMPLE_RATE)
+    #         # audio_array = semantic_to_waveform(semantic_tokens, history_prompt=SPEAKER,)
+    #         audio_array = generate_audio(sentence, 
+    #                                      history_prompt=SPEAKER, 
+    #                                      text_temp=GEN_TEMP,
+    #                                      silent=True)
+    #         #convert to 16 bit and trim silence
+    #         audio_array_16bit = np.int16(audio_array / np.max(np.abs(audio_array)) * 32767)
+    #         trimmmed_audio_array = trim_silence_np_array(audio_array_16bit, SAMPLE_RATE)
             
-            self.pieces += [trimmmed_audio_array]
+    #         self.pieces += [trimmmed_audio_array]
         
-        #concat peices and convert to 16 bit wav
-        audio_array = np.concatenate(self.pieces)
-        write_wav(output_file, SAMPLE_RATE, audio_array_16bit)
+    #     #concat peices and convert to 16 bit wav
+    #     audio_array = np.concatenate(self.pieces)
+    #     write_wav(output_file, SAMPLE_RATE, audio_array_16bit)
 
-        logger.info(f'Successfully generated audio file: {output_file}')
-        self.audio_file = output_file
+    #     logger.info(f'Successfully generated audio file: {output_file}')
+    #     self.audio_file = output_file
         
     
     

@@ -1,12 +1,6 @@
 import unittest
 from unittest.mock import patch, MagicMock
-from datetime import datetime
-import sys
-
-
-sys.path.append('../src')  # Add plugins directory to the sys path
-sys.path.append('../src/plugins')
-from podbeanManager import PodbeanManager
+from llm_from_here.plugins.podbeanManager import PodbeanManager
 
 class TestPodbeanManager(unittest.TestCase):
     @patch('os.getenv')

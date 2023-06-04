@@ -1,13 +1,12 @@
 import json
-import gpt
+import llm_from_here.plugins.gpt as gpt
 from jsonschema import validate
 from jsonschema.exceptions import ValidationError
 import logging
-import sys
 import fnmatch
 from fuzzywuzzy import process
 
-from common import log_exception
+from llm_from_here.common import log_exception
 
 logger = logging.getLogger(__name__)
 

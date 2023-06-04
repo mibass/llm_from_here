@@ -1,15 +1,12 @@
 import unittest
 from unittest.mock import Mock, patch, MagicMock
 from uuid import uuid4
-import sys
-sys.path.append('../src')  # Add plugins directory to the sys path
-from supaSet import SupaSet
-import supaSet
+from llm_from_here.supaSet import SupaSet
 
 class TestSupaSet(unittest.TestCase):
     
     @classmethod
-    @patch('supaSet.create_client')
+    @patch('llm_from_here.supaSet.create_client')
     def setUpClass(cls, mock_create_client):
         mock_create_client.return_value = MagicMock()  # Return a mock client instead of a real one
         cls.set_name = 'test_set'

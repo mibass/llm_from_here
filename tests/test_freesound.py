@@ -3,10 +3,7 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 from freesound import Sound
-
-# Add the source directory to the system path
-sys.path.append('../src/plugins')
-from freesoundfetch import FreeSoundFetch  # Assuming the class is in the freesound module
+from llm_from_here.plugins.freesoundfetch import FreeSoundFetch
 
 class TestFreeSound(unittest.TestCase):
     def setUp(self):

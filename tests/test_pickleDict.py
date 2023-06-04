@@ -1,8 +1,7 @@
 import unittest
-import os, sys
+import os
 import tempfile
-sys.path.append('../src')  # Add plugins directory to the sys path
-from pickleDict import PickleDict
+from llm_from_here.pickleDict import PickleDict
 
 class PickleDictTestCase(unittest.TestCase):
     def setUp(self):

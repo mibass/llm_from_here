@@ -1,11 +1,6 @@
 import unittest
 from unittest.mock import Mock
-import json
-import sys
-
-sys.path.append('../src')  # Add plugins directory to the sys path
-sys.path.append('../src/plugins')
-from intro import Intro, validate_json_response, filter_guests_count, match_categories
+from llm_from_here.plugins.intro import Intro, validate_json_response, filter_guests_count, match_categories
 
 class TestIntro(unittest.TestCase):
 

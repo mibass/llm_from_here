@@ -1,5 +1,8 @@
-import functools
+import os
 
+def get_resources_path():
+    base_dir = os.path.dirname(__file__)
+    return os.path.join(base_dir, 'resources')
 
 def log_exception(logger_error_func):
     def decorator(func):

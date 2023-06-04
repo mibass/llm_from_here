@@ -2,6 +2,7 @@ from pydub import AudioSegment
 import random
 import sys
 import os
+import llm_from_here.common as common
 
 
 def generate_applause(duration, start, end, variation):
@@ -24,7 +25,7 @@ def generate_applause(duration, start, end, variation):
     # Load a applause sample
     script_path = os.path.dirname(os.path.abspath(sys.argv[0]))
     applause_file_path = os.path.join(
-        script_path, "../resources/applause_sample.wav")
+        common.get_resources_path(), "applause_sample.wav")
     with open(applause_file_path, 'rb') as f:
         applause = AudioSegment.from_wav(f)
 

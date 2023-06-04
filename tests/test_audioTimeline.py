@@ -2,9 +2,8 @@
 import unittest
 from unittest.mock import patch, MagicMock, call
 from pydub import AudioSegment
-import sys, os
-sys.path.append('../src/plugins')
-from audioTimeline import AudioTimeline, SegmentLabel
+import os
+from llm_from_here.plugins.audioTimeline import AudioTimeline, SegmentLabel
 import tempfile
 import numpy as np
 

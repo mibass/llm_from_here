@@ -2,18 +2,17 @@ import importlib
 import yaml
 import os
 import logging
-import sys
 from dotenv import load_dotenv
 import hashlib
 import argparse
 from jsonschema.exceptions import ValidationError
 from json.decoder import JSONDecodeError
-import time
 from retry import retry
-from pickleDict import PickleDict
+from llm_from_here.pickleDict import PickleDict
+import appdirs
+import llm_from_here.plugins as plugins
 
 # load env variables
-
 load_dotenv()  # take environment variables from .env.
 
 # Set up logging
@@ -21,25 +20,12 @@ logging.basicConfig(filename='showRunner.log', level=logging.INFO,
                     format='%(asctime)s:%(name)s:%(levelname)s:%(message)s')
 logger = logging.getLogger(__name__)
 
-# Define the plugins directory
-# Get the absolute path of the directory containing this script
-script_dir = os.path.dirname(os.path.abspath(__file__))
-plugins_dir = os.path.join(script_dir, 'plugins')
-outputs_dir = os.path.join(script_dir, '../outputs')
-src_dir = os.path.join(script_dir, '/src')
-
-# Create the output directory if it doesn't exist
-if not os.path.exists(outputs_dir):
-    os.makedirs(outputs_dir)
-
-sys.path.append(plugins_dir)
-sys.path.append(src_dir)
-
 # Global dictionary to store merged results
 global_results = {}
 
 # Cache dictionary to store cached plugin results
-plugin_cache = PickleDict('cache.pickle', autocommit=True)
+cache_dir = appdirs.user_cache_dir(os.path.basename(__file__))
+plugin_cache = PickleDict(os.path.join(cache_dir , 'cache.pickle'), autocommit=True)
 
 def execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_name, retries=1):
     retry_count = 0
@@ -62,8 +48,7 @@ def execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_
             raise e
     return exec()
 
-
-def execute_plugins(yaml_file, clear_cache=False):
+def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
     if clear_cache:
         plugin_cache.clear()
         logger.info("Cache cleared.")
@@ -76,7 +61,7 @@ def execute_plugins(yaml_file, clear_cache=False):
     global_results = data.get('global_parameters', {})
 
     # Determine the run count based on previous folder
-    last_run_count = get_last_run_count(show_name)
+    last_run_count = get_last_run_count(show_name, outputs_dir)
     run_count = last_run_count + 1
 
     # create the folder, if it doesn't exist
@@ -107,9 +92,8 @@ def execute_plugins(yaml_file, clear_cache=False):
         else:
             # Import the plugin if it exists
             try:
-                module = importlib.import_module(f'{plugin_name}')
+                module = importlib.import_module(f'plugins.{plugin_name}')
                 plugin_class = getattr(module, plugin_class)
-                #plugin_instance = plugin_class()
                 logger.info(
                     f"Plugin '{plugin_name}' has been imported successfully.")
             except AttributeError:
@@ -121,27 +105,6 @@ def execute_plugins(yaml_file, clear_cache=False):
 
             plugin_results = execute_plugin(
                 plugin_class, plugin_params, global_results, plugin_instance_name=name_key, retries=plugin_retries)
-            # if enabled, attempt to execute the plugin until there are no validation or assertion errors
-            # retries = 0
-            # while retries < plugin_retries:
-            #     try:
-            #         #plugin_results = plugin_instance.execute(
-            #         #    plugin_params, global_results, plugin_instance_name=name_key)
-            #         plugin_instance = plugin_class(plugin_params, global_results, plugin_instance_name=name_key)
-            #         plugin_results = plugin_instance.execute()
-            #         break
-            #     except (ValidationError, AssertionError) as e:
-            #         if plugin_retries > 1:
-            #             logger.error("Caught exception:", str(e))
-            #             retries += 1
-            #             logger.info(f"Retry {retries} of {plugin_retries}")
-            #             time.sleep(1)  # Wait for 1 second before retrying
-            #         else:
-            #             raise e
-
-            # if retries == plugin_retries:
-            #     raise Exception(
-            #         f"Exceeded maximum retries of {plugin_retries}. Function failed.")
 
             logger.info(
                 f"Plugin '{plugin_name}' has been executed successfully.")
@@ -159,13 +122,7 @@ def execute_plugins(yaml_file, clear_cache=False):
         # Merge prepended results into global results
         global_results.update(prepended_results)
 
-    # dump the full global_results to yaml file in the output folder
-    # with open(os.path.join(output_folder, 'global_results.yaml'), 'w') as f:
-    #     yaml.dump(global_results, f)
-
-
-def get_last_run_count(show_name):
-    global outputs_dir
+def get_last_run_count(show_name, outputs_dir):
     folders = [folder for folder in os.listdir(
         outputs_dir) if os.path.isdir(os.path.join(outputs_dir, folder))]
     matching_folders = [
@@ -182,19 +139,38 @@ def get_last_run_count(show_name):
 
     return 0
 
-
 def parse_arguments():
     parser = argparse.ArgumentParser(description='ShowRunner')
     parser.add_argument('yaml_file', metavar='config.yaml',
                         type=str, help='Path to YAML configuration file')
     parser.add_argument('--clear-cache', dest='clear_cache',
                         action='store_true', help='Clear cache')
+    parser.add_argument('--output-dir', dest='outputs_dir',
+                        type=str, help='Output folder')
 
     args = parser.parse_args()
     return args
 
+def create_outputs_dir(args):
+    #ensure outputs_dir is set, create it if it doesn't exist
+    if not args.outputs_dir:
+        #set to current directory with "outputs" appended
+        outputs_dir = os.path.join(os.getcwd(), "outputs")
+    else:
+        outputs_dir = args.outputs_dir
+        
+    try:
+        if not os.path.exists(outputs_dir):
+            os.makedirs(outputs_dir)
+    except Exception as e:
+        logger.error(f"Error creating outputs directory: {e}")
+        raise e
+    
+    return outputs_dir
 
 if __name__ == "__main__":
     args = parse_arguments()
-
-    execute_plugins(args.yaml_file, args.clear_cache)
+    
+    outputs_dir = create_outputs_dir(args)
+        
+    execute_plugins(args.yaml_file, args.clear_cache, outputs_dir)
