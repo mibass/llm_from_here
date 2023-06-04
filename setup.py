@@ -40,7 +40,7 @@ setup(
         'plotly',
         'matplotlib',
         'pandas',
-         'freesound-python @ git+https://github.com/MTG/freesound-python.git#egg=freesound',
+        'freesound-python @ git+https://github.com/MTG/freesound-python.git#egg=freesound',
     ],
     python_requires=">=3.10"
 )

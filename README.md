@@ -8,7 +8,7 @@ The primary goal is to produce an automated podcast generator that can use LLMs 
 - produce guest lists
 - produce intros
 
-The realization this script into audio is achieved through the main script, named "ShowRunner", which is a dynamic plugin execution system designed to execute a series of plugin scripts defined in a YAML configuration file. The configuration file should contain the name of the show, global parameters, and a list of plugin specifications. Each plugin is executed in order and its results are stored in a global dictionary. To optimize performance, plugin results can be cached in a SQLite database and reloaded in subsequent runs if their specifications haven't changed, unless the cache is explicitly cleared. The plugin execution can be retried in case of validation or assertion errors. The system manages logging of activities and errors, and organizes outputs in unique folders named after the show and run count. Finally, the merged global results from all plugins are dumped into a YAML file in the output folder.
+The realization of this script into audio is achieved through the main script, named "ShowRunner", which is a dynamic plugin execution system designed to execute a series of plugin scripts defined in a YAML configuration file. The configuration file should contain the name of the show, global parameters, and a list of plugin specifications. Each plugin is executed in order and its results are stored in a global dictionary. To optimize performance, plugin results can be cached in a SQLite database and reloaded in subsequent runs if their specifications haven't changed, unless the cache is explicitly cleared. The plugin execution can be retried in case of validation or assertion errors. The system manages logging of activities and errors, and organizes outputs in unique folders named after the show and run count. Finally, the merged global results from all plugins are dumped into a YAML file in the output folder.
 
 
 ## Getting Started
@@ -61,11 +61,12 @@ This project uses dotenv to set environment variables. Keys are needed for:
 
 To run the script, execute the following command:
 
-```python script_name.py config.yaml [--clear-cache]```
+```python script_name.py config.yaml [--clear-cache, --outputs-dir]```
 
-Optional flag:
+Optional flags:
 
     --clear-cache: Use this flag to clear the plugin cache before execution.
+    --outputs-dir: Use this flag to specify the directory where outputs should be stored. Default is ./outputs.
 
 Make sure to provide the path to your YAML configuration file. The script will execute plugins defined in the YAML file, store results in the output folder, and log the execution details.
 
