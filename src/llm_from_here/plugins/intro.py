@@ -6,7 +6,8 @@ import logging
 import fnmatch
 from fuzzywuzzy import process
 
-from llm_from_here.common import log_exception
+from llm_from_here.common import log_exception, is_production_prefix
+from llm_from_here.supaSet import SupaSet
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,10 @@ def filter_guests_count(guests, guest_count_filters):
 
 
 def match_categories(guest_list, standard_categories):
+    """
+    Matches the 'guest_category' of each guest in the provided guest list to the closest matching category
+    from a list of standard categories.
+    """
     replacement_map = {}
 
     for guest in guest_list:
@@ -55,6 +60,21 @@ def match_categories(guest_list, standard_categories):
 
     return replacement_map
 
+def set_guests(guests, guest_set):
+    guests=list(set(guests))
+    for guest in guests:
+        if not guest_set.add(guest):
+            logger.warning(f"Guest {guest} already exists in supaset. Maybe retrying...")
+            raise ValidationError(f"Guest {guest} already exists in supaset. Maybe retrying...")
+        
+def add_guests_to_prompt(prompt, guest_set):
+    guest_names = guest_set.elements()
+    guest_names = ', '.join(guest_names)
+    if guest_names != '':
+        prompt += f'\n Do not use these guests because they have been on recently: {guest_names}'
+    return prompt
+
+
 
 class Intro:
     def __init__(self, params, global_params, plugin_instance_name, chat_app=None):
@@ -62,6 +82,10 @@ class Intro:
         self.params = params
         self.global_params = global_params
         self.plugin_instance_name = plugin_instance_name
+        supaset_name = f'{is_production_prefix()}guests_set'
+        self.guests_set = SupaSet(supaset_name,
+                                          autoexpire = params.get('guests_supaset_autoexpire_days', 90))
+        
 
         self.intro_schema = {
             "type": "array",
@@ -87,18 +111,33 @@ class Intro:
         }
 
         self.validate_required_params()
-        self.script = self.chat_app.chat(params['script_prompt'])
+        #script
+        script_prompt = params['script_prompt']
+        script_prompt = add_guests_to_prompt(script_prompt, self.guests_set)
+        if script_prompt != params['script_prompt']:
+            logger.info(f"Script prompt updated: {script_prompt}")
+        self.script = self.chat_app.chat(script_prompt)
         logger.info(f"Script: {self.script}")
+        
+        #json script
         self.intro = json.loads(self.chat_app.chat(params['json_script_prompt']))
         logger.info(f"Intro json: {self.intro}")
+        
+        #json guests
         self.guests = json.loads(self.chat_app.chat(params['json_guest_prompt']))
         logger.info(f"Guests json: {self.guests}")
 
         self.extra_prompt_responses = self.get_extra_prompt_responses()
-        self.validate_json_response()
+        self.validate_json_responses()
         self.normalize_guest_categories()
         self.apply_guest_list_filter()
+        self.update_guest_categories()
         self.apply_guest_count_filter()
+        
+        #finalize guests
+        set_guests([x['guest_name'] for x in self.guests], self.guests_set)
+        self.guests_set.complete_session()
+        
 
     def validate_required_params(self):
         required_params = ['system_message', 'script_prompt', 'json_script_prompt', 'json_guest_prompt']
@@ -116,11 +155,14 @@ class Intro:
             logger.info(f"Extra prompt response: {extra_prompt_responses[prompt['name']]}")
         return extra_prompt_responses
 
-    def validate_json_response(self):
+    def validate_json_responses(self):
         validate_json_response(self.intro, self.intro_schema)
         validate_json_response(self.guests, self.guests_schema)
 
     def normalize_guest_categories(self):
+        """
+        Normalizes the 'guest_category' values of the guests based on a list of standard categories.
+        """
         guest_categories = self.params.get('guest_categories', [])
         if guest_categories != []:
             logger.info("Normalizing guest categories")
@@ -129,6 +171,11 @@ class Intro:
                 logger.warning(f"Guest categories replacements made: {updates}")
 
     def apply_guest_list_filter(self):
+        """
+        Applies a guest name filter to the list of guests, removing guests whose names
+        match the specified filter patterns.
+        """
+
         guest_filter = self.params.get('guest_name_filters', [])
         if guest_filter:
             logger.info(f"Found guests filter: {guest_filter}")
@@ -145,7 +192,26 @@ class Intro:
             if removed_guests:
                 logger.info(f"Guests list filter applied. Guests removed: {removed_guests}")
 
+    def update_guest_categories(self):
+        """
+        Updates the 'guest_category' for each 'guest_name' in a list of dictionaries,
+        ensuring that all 'guest_categories' are the same per 'guest_name'.
+        """
+        guest_dict = {}
+
+        for guest in self.guests:
+            guest_category = guest['guest_category']
+            guest_name = guest['guest_name']
+            if guest_name in guest_dict:
+                guest['guest_category'] = guest_dict[guest_name]
+            else:
+                guest_dict[guest_name] = guest_category
+
+
     def apply_guest_count_filter(self):
+        """    
+        Applies a guest count filter to the list of guests, removing guests based on the specified count criteria.
+        """
         guest_count_filter = self.params.get('guest_count_filters', {})
         if guest_count_filter != {}:
             self.guests = filter_guests_count(self.guests, guest_count_filter)
@@ -153,8 +219,11 @@ class Intro:
     
     @log_exception(logger.error)
     def check_guests(self):
+        """
+        Checks that the number of guests is greater than zero and less than a maximum (default 10).
+        """
         assert len(self.guests) > 0, "Number of guests must be greater than zero."
-        assert len(self.guests) < 10, "Number of guests must be less than 10."
+        assert len(self.guests) < self.params.get("max_guests", 10), "Number of guests must be less than 10."
 
     def execute(self):
         self.check_guests()

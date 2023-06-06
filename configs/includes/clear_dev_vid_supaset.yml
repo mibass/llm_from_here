@@ -1,0 +1,5 @@
+  - name: clear_vid_supaset
+    plugin: clearSupaSet
+    class: ClearSupaSet
+    params:
+      set_name: dev_ytfetch_video_ids_returned

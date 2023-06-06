@@ -8,6 +8,9 @@ import random
 import html
 import fnmatch
 from retry import retry
+from llm_from_here.supaSet import SupaSet
+from jinja2 import Template
+from llm_from_here.common import is_production_prefix
 
 import logging
 logger = logging.getLogger(__name__)
@@ -15,11 +18,15 @@ logger = logging.getLogger(__name__)
 
 
 class YtFetch():
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.youtube = googleapiclient.discovery.build("youtube", "v3", 
                                                        developerKey=os.environ['YT_API_KEY'])
         self.last_response = None
-        self.video_ids_returned = []
+        supaset_name = f'{is_production_prefix()}ytfetch_video_ids_returned'
+        logger.info(f"Using supaset: {supaset_name}")
+        self.video_ids_returned = SupaSet(supaset_name,
+                                          autoexpire = kwargs.get('video_ids_supaset_autoexpire_days', 90))
+        
     
     def search_video(self, query, orderby="relevance"):
         
@@ -29,7 +36,7 @@ class YtFetch():
             q=query,
             videoDefinition="high",
             maxResults=1,
-            fields="items(id(videoId),snippet(channelId,title,description,thumbnails))",
+            fields="items(id(videoId),snippet(channelId,title,description,thumbnails,channelTitle))))",
             order=orderby
         )
         response = request.execute()
@@ -72,8 +79,30 @@ class YtFetch():
         duration = parse_duration(iso_duration)
         return duration.total_seconds()
 
-    def search_video_with_duration(self, query, min_duration, max_duration, duration_search_filter = None, description_filters=None, orderby="relevance"):
+    def llm_filter_title(self, chat_app, llm_filter_prompt, llm_filter_js, title, description, channel_title):
+        """
+        Filter videos based on title, description, and channel title using a call to GPT.
+        """
+        if llm_filter_prompt and llm_filter_js:
+            template = Template(llm_filter_prompt)
+            logger.info(f"LLM Checking video title {title}")
+            prompt = template.render(title=title, description=description, channel_title=channel_title)
+            response = chat_app.enforce_json_response(prompt, llm_filter_js)
+            logger.info(f"Response: {response}")
+            if response['answer'] == 'no':
+                return True
+        return False
+
+    def search_video_with_duration(self, query, **kwargs):
         """Searches for a video that falls within the specified duration range"""
+        duration_search_filter = kwargs.get('duration_search_filter')
+        description_filters = kwargs.get('description_filters')
+        orderby = kwargs.get('orderby', 'relevance')
+        llm_filter_prompt = kwargs.get('llm_filter_prompt')
+        llm_filter_js = kwargs.get('llm_filter_js')
+        chat_app = kwargs.get('chat_app')
+        min_duration = kwargs.get('duration_min_sec')
+        max_duration = kwargs.get('duration_max_sec')
 
         # First, perform a general search
         request = self.youtube.search().list(
@@ -82,8 +111,9 @@ class YtFetch():
             q=query,
             videoDefinition="any",
             videoDuration="any" if duration_search_filter is None else duration_search_filter,
-            maxResults=20,
-            fields="items(id(videoId),snippet(channelId,title,description,thumbnails))",
+            maxResults=30,
+            fields="items(id(videoId),snippet(channelId,title,description,channelTitle))",
+            safeSearch="strict",
             order=orderby #rating, relevance, viewCount, date, title, videoCount
         )
         response = request.execute()
@@ -96,7 +126,7 @@ class YtFetch():
             video_id = item['id']['videoId']
             
             #only return a video once per session
-            if video_id in self.video_ids_returned:
+            if not self.video_ids_returned.add(video_id):
                 logger.info(f"Video {video_id} already returned. Skipping.")
                 continue
 
@@ -123,27 +153,35 @@ class YtFetch():
             # Get the video duration and convert it to seconds
             duration = video_response['items'][0]['contentDetails']['duration']
             duration_seconds = self.duration_in_seconds(duration)
-
+            
+            #llm filter for title and description
+            if self.llm_filter_title(chat_app, llm_filter_prompt, llm_filter_js, 
+                                     item['snippet']['title'], item['snippet']['description'], item['snippet']['channelTitle']):
+                logger.info(f"Video https://www.youtube.com/watch?v={video_id} removed by llm filter. Skipping.")
+                continue
+            
             # If the duration falls within the specified range, return this video
-            if min_duration <= duration_seconds <= max_duration:
-                return {
-                    'video_id': video_id,
-                    'title': html.unescape(item['snippet']['title']),
-                    'thumbnail': item['snippet']['thumbnails']['high']['url'],
-                    'video_url': f"https://www.youtube.com/watch?v={video_id}"
-                }
-            else:
-                logger.info(f"Video {video_id} duration {duration_seconds} does not fall within the specified range, {min_duration}:{max_duration}. Skipping.")
+            if min_duration and max_duration:
+                if min_duration <= duration_seconds <= max_duration:
+                    return {
+                        'video_id': video_id,
+                        'title': html.unescape(item['snippet']['title']),
+                        'channel_title': html.unescape(item['snippet']['channelTitle']),
+                        'video_url': f"https://www.youtube.com/watch?v={video_id}"
+                    }
+                else:
+                    logger.info(f"Video {video_id} duration {duration_seconds} does not fall within the specified range, {min_duration}:{max_duration}. Skipping.")
 
         # If no videos in the specified duration range were found, return None
         return None
 
 
 
-    def search_and_download_audio_with_duration(self, query, output_file, min_duration, max_duration, duration_search_filter, description_filters):
+    def search_and_download_audio_with_duration(self, query, output_file, 
+                                                **kwargs):
         """Searches for a video within a specified duration range and downloads its audio"""
         # Search for a video within the specified duration range
-        video = self.search_video_with_duration(query, min_duration, max_duration, duration_search_filter, description_filters)
+        video = self.search_video_with_duration(query, **kwargs)
 
         # If no video was found, print a message and return
         if video is None:

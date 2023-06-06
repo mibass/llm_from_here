@@ -1,9 +1,17 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, MagicMock, patch
 from llm_from_here.plugins.intro import Intro, validate_json_response, filter_guests_count, match_categories
 
 class TestIntro(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.mock_supaset_patcher = patch('llm_from_here.plugins.intro.SupaSet')
+        cls.mock_supaset = cls.mock_supaset_patcher.start()
 
+    @classmethod
+    def tearDownClass(cls):
+        cls.mock_supaset_patcher.stop()
+        
     def setUp(self):
         self.params = {
             'system_message': 'Hello',
@@ -23,6 +31,14 @@ class TestIntro(unittest.TestCase):
             'extra_prompt_response',
             'extra_prompt_response'
         ]
+        # Get the mock instance of the SupaSet class
+        # Get the mock instance of the SupaSet class
+        supaset_mock = self.mock_supaset.return_value
+        
+        # Mock the behavior of the SupaSet methods as needed
+        supaset_mock.add.return_value = True
+        supaset_mock.elements.return_value = ['Guest1', 'Guest2']
+        
 
     def test_init(self):
         intro = Intro(self.params, self.global_params, self.plugin_instance_name, self.chat_app)

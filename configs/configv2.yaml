@@ -1,12 +1,14 @@
 global_params:
 
 plugins:
+  #- !include includes/clear_dev_vid_supaset.yml
   - name: intro
     plugin: intro
     class: Intro
     cache: True
     retries: 5
     params:
+      guests_supaset_autoexpire_days: 30
       system_message: >
         You are a big shot new york live show producer, writer, and performer. 
         You are current the show runner for the Live From Here show and are calling all the shots. 
@@ -14,7 +16,7 @@ plugins:
 
       script_prompt: >
         Write a script for the intro to be read Verbatim by Chris Thile.  
-        Chris should announce a guest list that should include 2 or 3 musical acts, 1 or 2 comedians, 1 author or actor, and 1 improv comedian who has been on the Comedy Bang Bang podcast.  
+        Chris should announce a guest list that should include 2 or 3 musical acts, 1 comedian, 1 author or actor, and 1 improv comedian who has been on the Comedy Bang Bang, improv4humans, or SuperEgo podcasts.  
         These should be actual people that exist and Chris should say their real names.  
         This intro segment should be about 5 minutes long and end with Chris announcing the guests.  
         Applause breaks and duration should be added and denoted with [APPLAUSE duration x] where x is in seconds and could be between 3 and 6 seconds, for example:
@@ -104,54 +106,52 @@ plugins:
         actor: 1
         improv: 1
 
+
       
   - name: intro_audio
-    plugin: segmentAudio
-    class: SegmentAudio
+    plugin: segmentsToTimeline
+    class: SegmentsToTimeline
     cache: True
+    cb: 16
     params:
       segments_object: intro_intro
       segment_type_key: speaker
       segment_value_key: dialog
       segment_type_map:
         music:
-          #segment_type: music_generator_freesound
-          # segment_type: youtube_search
-          # arguments:
-          #   additional_query_text: instrumental live performance
-          #   duration_min_sec: 180
-          #   duration_max_sec: 240
-          #   duration_search_filter: short
           segment_type: youtube_playlist
+          background_music: True
           arguments:
             playlist_id: PLE3cjj4L4BWgu8nQtMYbNrGdUA7mpbOKk
         chris thile:
           segment_type: fast_TTS
-          #segment_type: slow_TTS
         audience:
           segment_type: applause_generator
-    cache_buster: 3
+        intro_name:
+          segment_type: fast_TTS
+        intro_applause:
+          segment_type: applause_generator
+      segment_transition_map:
+        audience:
+          chris thile:
+            overlay_percentage: 25
+        chris thile:
+          audience:
+            overlay_duration: 1
+            gain: -5
+            gain_match: True
+            fade_out: 500
 
-  - name: intro_audio_stitch
-    plugin: stitchAudio
-    class: StitchAudio
-    cache: True
-    params:
-      segments_object: intro_audio_segments
-      segment_type_key: speaker
-      segment_filename_key: filename
-      segment_type_map:
-        music: background music
-        chris thile: spoken
-        audience: applause
-    cache_buster: 4
+
+
 
   - name: guests_audio
-    plugin: segmentAudio
-    class: SegmentAudio
+    plugin: segmentsToTimeline
+    class: SegmentsToTimeline
     cache: True
-    cache_buster: 3
+    cache_buster: 6
     params:
+      timeline_variable: intro_audio_timeline
       segments_object: intro_guests
       segment_type_key: guest_category
       segment_value_key: guest_name
@@ -160,7 +160,7 @@ plugins:
           segment_type: youtube_search
           intro_name: True
           intro_applause: True
-          intro_prompt: >
+          intro_prompt: &intro_prompt >
             Given a youtube search query  and a title for a video found using it, formatted like "query:::title", come up with a one sentence introduction for a host to read before the video plays. An example is:
             Cheryl Strayed (monologue|story|reading|"live from here"):::Interview Cheryl Strayed Reese Witherspoon WILD
             and the generated introduction would look like:
@@ -170,6 +170,7 @@ plugins:
             additional_query_text: live"
             duration_min_sec: 300
             duration_max_sec: 660
+            video_ids_supaset_autoexpire_days: 90
         music: 
           <<: *default
           segment_type: youtube_search
@@ -195,6 +196,28 @@ plugins:
             duration_search_filter: medium
             duration_min_sec: 300
             duration_max_sec: 660
+            llm_filter_prompt: &llm_filter_prompt >
+              Can you tell me if this video title represents a video that would be appropriate for a 
+              variety show that is meant to be uplifting and simulate nostalgic feelings? I want to 
+              avoid controversial, misogynistic, and political content. You should be more lenient
+              with channels from well known sources like NPR, PBS, and the BBC as well as late night
+              talk shows.
+              
+              Make your best guess attempt and respond only with yes or no.
+
+              The title is "{{ title }}" and the description is "{{ description }}"
+              and the channel title is "{{ channel_title }}".
+
+              Respond only with the following schema:
+            llm_filter_js:
+              type: object
+              properties:
+                answer:
+                  type: string
+                  pattern: '^(?i)(yes|no)$'
+              required:
+                - answer
+
         improv:
           <<: *default
           segment_type: youtube_search
@@ -204,50 +227,57 @@ plugins:
             duration_min_sec: 300
             duration_max_sec: 660
 
-
-  - name: guests_audio_stitch
-    plugin: stitchAudio
-    class: StitchAudio
-    cache: True
-    params:
-      segments_object: guests_audio_segments    
-      segment_type_key: guest_category
-      segment_filename_key: filename
-      segment_type_map:
-        default: spoken
-    cache_buster: 1
-
-  - name: final_audio_stitch
-    plugin: stitchAudio
-    class: StitchAudio
-    cache: True
-    params:
-      name: final_audio_stitch
-      output_format: mp3
-      segments_list: 
-        - intro_audio_stitch_stitched_audio_file
-        - guests_audio_stitch_stitched_audio_file
-
-
-  - name: lfh_rss
-    plugin: podcastManager
-    class: PodcastManager
+  - name: instrumental
+    plugin: segmentsToTimeline
+    class: SegmentsToTimeline
     # cache: True
-    # cache_buster: 2
+    cb: 16
     params:
-      podcast_title: LLM From Here - Episode {{ episode_number }}
-      final_guests_list_variable: guests_audio_segments
-      final_guests_list_key: guest_name
-      source_file_name_variable: final_audio_stitch_stitched_audio_file
-      podcast_description_template: >
-        On tonight's episode of LLM From Here:
-        {% for guest in guests_audio_segments %}
-          {{ guest }}
-        {% endfor %}
-        https://github.com/mibass/llm_from_here
-      podcast_description_character_limit: 500
-      podcast_feed_url: https://feed.podbean.com/llmfromhere/feed.xml
-      podcast_file_name_final_template: llm_from_here_{{ gen_date.strftime('%Y%m%d') }}_episode_{{ episode_number }}.mp3
+      timeline_variable: guests_audio_timeline
+      segment_type_map:
+        music:
+          segment_type: youtube_playlist
+          intro_name: True
+          intro_prompt: *intro_prompt
+          arguments:
+            playlist_id: PL8ufCCC-rPcv60d6yR7Sac3nRctr8hxEG
+
+
+  - name: audio_render
+    plugin: audioTimeline
+    class: AudioTimeline
+    params:
+      timeline_variable: instrumental_timeline
+
+  # - name: final_audio
+  #   plugin: stitchAudio
+  #   class: StitchAudio
+  #   params:
+  #     name: final_audio
+  #     output_format: mp3
+  #     segments_list: 
+  #       - audio_render_file_path
+
+
+  # - name: lfh_rss
+  #   plugin: podcastManager
+  #   class: PodcastManager
+  #   # cache: True
+  #   # cache_buster: 2
+  #   params:
+  #     podcast_title: LLM From Here - Episode {{ episode_number }}
+  #     final_guests_list_variable: guests_audio_segments
+  #     final_guests_list_key: guest_name
+  #     source_file_name_variable: final_audio_stitch_stitched_audio_file
+  #     podcast_description_template: >
+  #       On tonight's episode of LLM From Here:
+  #       {% for guest in guests_audio_segments %}
+  #         {{ guest }}
+  #       {% endfor %}
+  #       https://github.com/mibass/llm_from_here
+  #     podcast_description_character_limit: 500
+  #     podcast_feed_url: https://feed.podbean.com/llmfromhere/feed.xml
+  #     podcast_file_name_final_template: llm_from_here_{{ gen_date.strftime('%Y%m%d') }}_episode_{{ episode_number }}.mp3
 
 
   # - name: lfh_podbean

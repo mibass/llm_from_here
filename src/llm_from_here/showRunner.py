@@ -1,5 +1,6 @@
 import importlib
 import yaml
+import yamlinclude
 import os
 import logging
 from dotenv import load_dotenv
@@ -24,7 +25,9 @@ logger = logging.getLogger(__name__)
 global_results = {}
 
 # Cache dictionary to store cached plugin results
-cache_dir = appdirs.user_cache_dir(os.path.basename(__file__))
+cache_dir = appdirs.user_cache_dir(appname=os.path.basename(__file__))
+if not os.path.exists(cache_dir):
+    os.makedirs(cache_dir)
 plugin_cache = PickleDict(os.path.join(cache_dir , 'cache.pickle'), autocommit=True)
 
 def execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_name, retries=1):
@@ -48,13 +51,21 @@ def execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_
             raise e
     return exec()
 
+def load_yaml(yaml_file):
+    base_dir = os.path.dirname(yaml_file)
+    yamlinclude.YamlIncludeConstructor.add_to_loader_class(loader_class=yaml.FullLoader, 
+                                                           base_dir=base_dir)
+    with open(yaml_file) as file:
+        data = yaml.load(file, Loader=yaml.FullLoader)
+    return data
+
 def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
+    global global_results
     if clear_cache:
         plugin_cache.clear()
         logger.info("Cache cleared.")
 
-    with open(yaml_file) as file:
-        data = yaml.load(file, Loader=yaml.Loader)
+    data = load_yaml(yaml_file)
 
     # Create unique outputs folder based on show parameter
     show_name = data.get('show_name', 'show')
@@ -92,7 +103,7 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
         else:
             # Import the plugin if it exists
             try:
-                module = importlib.import_module(f'plugins.{plugin_name}')
+                module = importlib.import_module(f'llm_from_here.plugins.{plugin_name}')
                 plugin_class = getattr(module, plugin_class)
                 logger.info(
                     f"Plugin '{plugin_name}' has been imported successfully.")
@@ -121,6 +132,7 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
 
         # Merge prepended results into global results
         global_results.update(prepended_results)
+        
 
 def get_last_run_count(show_name, outputs_dir):
     folders = [folder for folder in os.listdir(
@@ -174,3 +186,6 @@ if __name__ == "__main__":
     outputs_dir = create_outputs_dir(args)
         
     execute_plugins(args.yaml_file, args.clear_cache, outputs_dir)
+    
+    logger.info(f"Global results keys at end of run: {global_results.keys()}")
+    logger.info("ShowRunner completed successfully.")

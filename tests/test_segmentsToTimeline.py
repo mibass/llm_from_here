@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch, MagicMock, Mock, call
+from unittest.mock import patch, MagicMock
 import os
 import shutil
 import yaml
@@ -55,9 +55,9 @@ class TestSegmentsToTimeline(unittest.TestCase):
 
     @patch("llm_from_here.plugins.showTTS.ShowTextToSpeech")
     def test_init(self, mock_showTTS):
-        self.assertIsNotNone(self.stt.show_tts)
+        self.assertIsNone(self.stt.show_tts)
         self.assertIsNotNone(self.stt.freesound_fetch)
-        self.assertIsNotNone(self.stt.yt_fetch)
+        self.assertIsNone(self.stt.yt_fetch)
         # self.assertIsNotNone(self.stt.chat_app_object)
         self.assertIsNotNone(self.stt.global_results)
         self.assertIsNotNone(self.stt.params)
@@ -82,7 +82,6 @@ class TestSegmentsToTimeline(unittest.TestCase):
             mock_search_and_download_top_samples(test_text, test_output_file)
             mock_search_and_download_top_samples.assert_called_once()
 
-
     def test_get_transition_map_entry(self):
         with patch.object(self.stt.timeline, 'get_last_type', return_value='music') as mock_get_last_type:
             result = self.stt.get_transition_map_entry(
@@ -95,9 +94,13 @@ class TestSegmentsToTimeline(unittest.TestCase):
             {'speaker': 'chris thile', 'dialog': 'dialog1'},
             {'speaker': 'audience', 'dialog': 'dialog2'},
         ]
-        output_folder = tempfile.mkdtemp()
+        self.mock_global_results['intro_intro'] = data
+        output_folder = self.mock_global_results['output_folder']
 
         # Mock the necessary methods and attributes
+        self.stt = SegmentsToTimeline(
+            self.mock_params, self.mock_global_results, self.mock_plugin_instance_name)
+
         self.stt.applause_generator = MagicMock()
         self.stt.fast_TTS = MagicMock()
         self.stt.timeline = MagicMock()
@@ -108,8 +111,7 @@ class TestSegmentsToTimeline(unittest.TestCase):
         self.stt.youtube_playlist = MagicMock()
 
         # Call the method under test
-        self.stt.generate_audio_segments(
-            data, output_folder, self.mock_params, self.mock_plugin_instance_name)
+        self.stt.generate_audio_segments()
 
         # Assert that the expected methods were called with the correct arguments
         self.stt.applause_generator.assert_called_once_with(

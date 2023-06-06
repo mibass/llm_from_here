@@ -15,10 +15,10 @@ logger = logging.getLogger(__name__)
 
 class SegmentsToTimeline():
     def __init__(self, params, global_results, plugin_instance_name):
-        self.show_tts = showTTS.ShowTextToSpeech()
+        self.show_tts = None
         self.freesound_fetch = freesoundfetch.FreeSoundFetch(
             params, global_results, plugin_instance_name)
-        self.yt_fetch = ytfetch.YtFetch()
+        self.yt_fetch = None
         self.chat_app_object = global_results.get(
             params.get('chat_app_object', 'intro_chat_app'), None)
         self.global_results = global_results
@@ -30,6 +30,8 @@ class SegmentsToTimeline():
         self.timeline = global_results.get(timeline_variable, audioTimeline.AudioTimeline())
         if timeline_variable:
             logger.info(f"Using existing timeline in {timeline_variable}. Timeline length: {self.timeline.get_last_end_time()}")
+        else:
+            logger.info(f"No timeline found. Creating new timeline.")
         
 
     def applause_generator(self, text, output_file):
@@ -68,32 +70,40 @@ class SegmentsToTimeline():
         shutil.move(self.freesound_fetch.temp_files[-1], output_file)
 
     def fast_TTS(self, text, output_file):
+        if self.show_tts is None:
+            self.show_tts = showTTS.ShowTextToSpeech()
         self.show_tts.speak(text, output_file, fast=True)
 
     # def slow_TTS(self, text, output_file):
     #     self.show_tts.speak(text, output_file, fast=False)
 
-    def youtube_search(self, text, output_file,
-                       additional_query_text="",
-                       duration_min_sec=180,
-                       duration_max_sec=480,
-                       duration_search_filter=None,
-                       description_filters=None):
+    def youtube_search(self, text, output_file, **kwargs):
+        if self.yt_fetch is None:
+            self.yt_fetch = ytfetch.YtFetch(**kwargs)
+        additional_query_text = kwargs.get('additional_query_text', '')
+
         query = f"{text} {additional_query_text}"
         logger.info(f"Retreiving youtube audio with query: {query}")
+        kwargs['chat_app']= self.chat_app_object
 
         res = self.yt_fetch.search_and_download_audio_with_duration(query,
                                                                     output_file,
-                                                                    duration_min_sec,
-                                                                    duration_max_sec,
-                                                                    duration_search_filter,
-                                                                    description_filters)
-        logger.info(
-            f"Retreived youtube audio result with title: {res.get('title','')} {res.get('video_url','')}")
-        return res
+                                                                    **kwargs)
+        
+        if res is None:
+            logger.warning(f"No youtube audio result found for query: {query}")
+            return None
+        else:
+            logger.info(
+                f"Retreived youtube audio result with title: {res.get('title','')} {res.get('video_url','')}")
+            return res
 
-    def youtube_playlist(self, text, output_file, playlist_id=None):
+    def youtube_playlist(self, text, output_file, **kwargs):
+        playlist_id = kwargs.get('playlist_id')
         logger.info(f"Retreiving youtube playlist item with id: {playlist_id}")
+        
+        if self.yt_fetch is None:
+            self.yt_fetch = ytfetch.YtFetch(**kwargs)
 
         res = self.yt_fetch.download_random_video_from_playlist(
             playlist_id, output_file)
@@ -115,14 +125,26 @@ class SegmentsToTimeline():
                 return segment_transition_map[from_type][to_type]
         return {}
 
-    def generate_audio_segments(self, data, output_folder, params, plugin_instance_name, chat_app=None):
-        type_key = params['segment_type_key']
-        value_key = params['segment_value_key']
-        segment_type_map = params['segment_type_map']
-        segment_transition_map = params.get('segment_transition_map', [])
+    def get_data(self, type_key, value_key):
+        data = self.global_results.get(self.params.get('segments_object'))
+        if not data:
+            logger.info(f"No data found. Using segment_type_map instead.")
+            #if no data, assume segment_type_map is the list
+            data = []
+            for k,_ in self.params['segment_type_map'].items():
+                data.append({type_key: k, value_key: ''})
+            logger.info(f"Data is now: {data}")
+        return data
 
-        for i, entry in enumerate(data):
-            filename_prefix = f"{plugin_instance_name}_{i:03d}"
+    def generate_audio_segments(self):
+        output_folder = self.global_results['output_folder']
+        type_key = self.params.get('segment_type_key', 'speaker')
+        value_key = self.params.get('segment_value_key', 'dialog')
+        segment_type_map = self.params['segment_type_map']
+        segment_transition_map = self.params.get('segment_transition_map', [])
+
+        for i, entry in enumerate(self.get_data(type_key, value_key)):
+            filename_prefix = f"{self.plugin_instance_name}_{i:03d}"
             filename = filename_prefix + ".wav"
             file_path = os.path.join(output_folder, filename)
 
@@ -148,6 +170,8 @@ class SegmentsToTimeline():
             res = getattr(self, function_name)(
                 entry[value_key], file_path, **function_arguments)
             
+            if res is None: continue
+            
             title = res.get('title', None) if res is not None else None
 
             # generate applause, if enabled for this segment
@@ -158,11 +182,11 @@ class SegmentsToTimeline():
                         output_folder, intro_file_name)
                     prompt = segment_type_map[segment_type].get(
                         'intro_prompt', None)
-                    if prompt and chat_app:
+                    if prompt and self.chat_app_object:
                         intro_prompt = prompt + \
                             entry[value_key] + ":::" + title
                         logger.info(f"Prompting chat app with: {intro_prompt}")
-                        intro_text = chat_app.chat(
+                        intro_text = self.chat_app_object.chat(
                             intro_prompt, strip_quotes=True)
                     else:
                         intro_text = 'Ladies and gentlemen... {intro_text}'
@@ -208,11 +232,8 @@ class SegmentsToTimeline():
 
 
     def execute(self):
-        self.generate_audio_segments(self.global_results[self.params['segments_object']],
-                                     self.global_results['output_folder'],
-                                     self.params,
-                                     self.plugin_instance_name,
-                                     chat_app=self.chat_app_object)
+        data = self.global_results.get(self.params.get('segments_object'))
+        self.generate_audio_segments()
         
         #set the end times for all background segments
         self.timeline.set_end_times()

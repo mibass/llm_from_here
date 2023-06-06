@@ -1,12 +1,12 @@
 
-import showTTS
+import llm_from_here.plugins.showTTS as showTTS
 import os
 import re
 import shutil
 
-from applause import generate_applause
-import freesoundfetch
-import ytfetch
+from llm_from_here.plugins.applause import generate_applause
+import llm_from_here.plugins.freesoundfetch as freesoundfetch
+import llm_from_here.plugins.ytfetch as ytfetch
 
 import logging
 logger = logging.getLogger(__name__)
