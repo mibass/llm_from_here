@@ -23,7 +23,6 @@ class YtFetch():
                                                        developerKey=os.environ['YT_API_KEY'])
         self.last_response = None
         supaset_name = f'{is_production_prefix()}ytfetch_video_ids_returned'
-        logger.info(f"Using supaset: {supaset_name}")
         self.video_ids_returned = SupaSet(supaset_name,
                                           autoexpire = kwargs.get('video_ids_supaset_autoexpire_days', 90))
         
@@ -87,6 +86,7 @@ class YtFetch():
             template = Template(llm_filter_prompt)
             logger.info(f"LLM Checking video title {title}")
             prompt = template.render(title=title, description=description, channel_title=channel_title)
+            logger.info(f"Prompt: {prompt}")
             response = chat_app.enforce_json_response(prompt, llm_filter_js)
             logger.info(f"Response: {response}")
             if response['answer'] == 'no':
@@ -124,49 +124,49 @@ class YtFetch():
         # Now, for each video in the search results, check the duration
         for item in response['items']:
             video_id = item['id']['videoId']
+            title = html.unescape(item['snippet']['title'])
+            description_trimmed = html.unescape(item['snippet']['description'])
+            channel_title = html.unescape(item['snippet']['channelTitle'])
             
-            #only return a video once per session
+            # Check if this video has already been returned
             if not self.video_ids_returned.add(video_id):
                 logger.info(f"Video {video_id} already returned. Skipping.")
                 continue
 
             # Check if the description contains the filter string
-            logger.info(f"Checking video description {item['snippet']['description']}")
-            if description_filters:
-                matched_filter = None
-                for description_filter in description_filters:
-                    if fnmatch.fnmatch(item['snippet']['description'], description_filter):
-                        matched_filter = description_filter
-                        break
-
-                if matched_filter is not None:
-                    logger.info(f"Video {video_id} matches description filter {matched_filter}. Skipping.")
-                    continue
+            if self.description_filter(description_trimmed, description_filters):
+                continue
         
             # Fetch the video details
             video_request = self.youtube.videos().list(
-                part="contentDetails",
+                part="snippet, contentDetails",
                 id=video_id
             )
             video_response = video_request.execute()
 
-            # Get the video duration and convert it to seconds
+            # Get the video duration and description
             duration = video_response['items'][0]['contentDetails']['duration']
             duration_seconds = self.duration_in_seconds(duration)
+            full_description = html.unescape(video_response['items'][0]['snippet']['description'])
             
-            #llm filter for title and description
+            # Check if the full description contains the filter string
+            if self.description_filter(full_description, description_filters):
+                continue
+            
+            #llm filter for title and description and channel_title
             if self.llm_filter_title(chat_app, llm_filter_prompt, llm_filter_js, 
-                                     item['snippet']['title'], item['snippet']['description'], item['snippet']['channelTitle']):
+                                     title, full_description, channel_title):
                 logger.info(f"Video https://www.youtube.com/watch?v={video_id} removed by llm filter. Skipping.")
                 continue
+            
             
             # If the duration falls within the specified range, return this video
             if min_duration and max_duration:
                 if min_duration <= duration_seconds <= max_duration:
                     return {
                         'video_id': video_id,
-                        'title': html.unescape(item['snippet']['title']),
-                        'channel_title': html.unescape(item['snippet']['channelTitle']),
+                        'title': title,
+                        'channel_title': channel_title,
                         'video_url': f"https://www.youtube.com/watch?v={video_id}"
                     }
                 else:
@@ -175,7 +175,20 @@ class YtFetch():
         # If no videos in the specified duration range were found, return None
         return None
 
+    def description_filter(self, description, description_filters):
+        """Check if the description contain the filter strings"""
+        if description_filters:
+            matched_filter = None
+            for description_filter in description_filters:
+                if fnmatch.fnmatch(description, description_filter):
+                    matched_filter = description_filter
+                    break
 
+            if matched_filter is not None:
+                logger.info(f"Video matches description filter {matched_filter}. Skipping.")
+                return True
+        
+        return False
 
     def search_and_download_audio_with_duration(self, query, output_file, 
                                                 **kwargs):
@@ -211,7 +224,6 @@ class YtFetch():
         self.last_response = response
         return [item['snippet']['resourceId']['videoId'] for item in response['items']]
 
-    import time
 
     def download_random_video_from_playlist(self, playlist_id, output_file=None, max_retries=5):
         """Randomly choose a video from a playlist to download"""

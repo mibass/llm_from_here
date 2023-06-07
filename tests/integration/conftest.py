@@ -12,12 +12,15 @@ def enforce_json_prompt_template():
         variety show that is meant to be uplifting and simulate nostalgic feelings? I want to 
         avoid controversial, misogynistic, and political content. You should be more lenient
         with channels from well known sources like NPR, PBS, and the BBC as well as late night
-        talk shows such as Conan, Jimmy Fallon, Jimmy Kimmel, Letterman, Leno, or any old time late show.
+        talk shows.
         
         Make your best guess attempt and respond only with yes or no.
 
-        The title is "{}" and the description is "{}"
-        and the channel title is "{}".
+        The title is "{}" and the channel title is "{}
+        and the description is:
+        ````
+        {}
+        ```
 
         Respond only with the following schema:
     """

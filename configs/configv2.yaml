@@ -205,8 +205,11 @@ plugins:
               
               Make your best guess attempt and respond only with yes or no.
 
-              The title is "{{ title }}" and the description is "{{ description }}"
-              and the channel title is "{{ channel_title }}".
+              The title is "{{ title }}" and the channel title is "{{ channel_title }}
+              and the description is:
+              ```
+               {{ description }}
+              ```
 
               Respond only with the following schema:
             llm_filter_js:

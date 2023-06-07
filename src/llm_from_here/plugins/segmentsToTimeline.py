@@ -47,6 +47,7 @@ class SegmentsToTimeline():
         # Export to a new file
         with open(output_file, 'wb') as f:
             applause_segment.export(f, format="wav")
+            return True
 
     def music_generator_freesound(self, text, output_file,
                                   additional_query_text="",
@@ -68,11 +69,13 @@ class SegmentsToTimeline():
                                                              1,
                                                              {'filter': f'duration:[{duration_min_sec} TO {duration_max_sec}]'})
         shutil.move(self.freesound_fetch.temp_files[-1], output_file)
+        return True
 
     def fast_TTS(self, text, output_file):
         if self.show_tts is None:
             self.show_tts = showTTS.ShowTextToSpeech()
         self.show_tts.speak(text, output_file, fast=True)
+        return True
 
     # def slow_TTS(self, text, output_file):
     #     self.show_tts.speak(text, output_file, fast=False)
@@ -170,9 +173,9 @@ class SegmentsToTimeline():
             res = getattr(self, function_name)(
                 entry[value_key], file_path, **function_arguments)
             
-            if res is None: continue
+            if res is None: continue #None indicates no audio was generated
             
-            title = res.get('title', None) if res is not None else None
+            title = res.get('title', None) if res is not None and type(res)==dict else None
 
             # generate applause, if enabled for this segment
             if segment_type_map[segment_type].get('intro_name', False) and res is not None:
@@ -193,13 +196,13 @@ class SegmentsToTimeline():
                     self.fast_TTS(intro_text, intro_file_path)
 
                     # get transition map entry, if it exists
-                    kwargs = self.get_transition_map_entry(
+                    afp_kwargs = self.get_transition_map_entry(
                         segment_transition_map, 'intro_name')
                     self.timeline.add_after_previous(intro_file_path,
                                                      label=audioTimeline.SegmentLabel.FOREGROUND,
                                                      name=f'intro_name_{i}',
                                                      type='intro_name',
-                                                     **kwargs)
+                                                     **afp_kwargs)
                     logger.info(f"Generated intro name for: {intro_text}")
 
             # generate applause, if enabled for this segment
@@ -209,26 +212,26 @@ class SegmentsToTimeline():
                     output_folder, applause_file_name)
                 self.applause_generator('duration 3', applause_file_path)
 
-                kwargs = self.get_transition_map_entry(
+                afp_kwargs = self.get_transition_map_entry(
                     segment_transition_map, 'intro_applause')
                 self.timeline.add_after_previous(applause_file_path,
                                                  label=audioTimeline.SegmentLabel.FOREGROUND,
                                                  name=f'intro_applause_{i}',
                                                  type='intro_applause',
-                                                 **kwargs)
+                                                 **afp_kwargs)
                 logger.info(f"Generated applause")
 
             # append the entry to the timeline
             background_music = segment_type_map[segment_type].get('background_music', False)
-            kwargs = self.get_transition_map_entry(
+            afp_kwargs = self.get_transition_map_entry(
                 segment_transition_map, entry[type_key])
-            logger.info(f"Adding {entry[type_key]} to timeline as label {audioTimeline.SegmentLabel.BACKGROUND if background_music else audioTimeline.SegmentLabel.FOREGROUND} and args {kwargs}")
+            logger.info(f"Adding {entry[type_key]} to timeline as label {audioTimeline.SegmentLabel.BACKGROUND if background_music else audioTimeline.SegmentLabel.FOREGROUND} and args {afp_kwargs}")
             self.timeline.add_after_previous(file_path,
                                              label=audioTimeline.SegmentLabel.BACKGROUND if background_music else audioTimeline.SegmentLabel.FOREGROUND,
                                             #  name=f'{entry[type_key]}_{i}',
                                              name=title if title else f'{entry[type_key]}_{i}',
                                              type=entry[type_key],
-                                             **kwargs)
+                                             **afp_kwargs)
 
 
     def execute(self):

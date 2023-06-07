@@ -1,4 +1,4 @@
-  - name: clear_vid_supaset
+  - name: clear_dev_vid_supaset
     plugin: clearSupaSet
     class: ClearSupaSet
     params:
