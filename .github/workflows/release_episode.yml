@@ -43,6 +43,9 @@ jobs:
             FREESOUND_API_KEY: ${{ secrets.FREESOUND_API_KEY }}
             PODBEAN_CLIENT_ID: ${{ secrets.PODBEAN_CLIENT_ID }}
             PODBEAN_CLIENT_SECRET: ${{ secrets.PODBEAN_CLIENT_SECRET }}
+            SUPASET_URL: ${{ secrets.SUPASET_URL }}
+            SUPASET_KEY: ${{ secrets.SUPASET_KEY }}
+            LLMFH_ENV: prod
             
       - name: Upload log file
         if: always()

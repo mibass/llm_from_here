@@ -45,13 +45,14 @@ def clear_supaset(set_name):
 class SupaSet:
     table_name = 'supasets'
 
-    def __init__(self, set_name, autoexpire=None):
+    def __init__(self, set_name, autoexpire=None, case_sensitive=False):
         SUPASET_URL = os.environ.get('SUPASET_URL')
         SUPASET_KEY = os.environ.get('SUPASET_KEY')
 
         self.client = create_client(SUPASET_URL, SUPASET_KEY)
         self.set_name = set_name
         self.session_id = uuid4().hex  # Generate a new UUID for this session
+        self.case_sensitive = case_sensitive
         self._cleanup_incomplete_sessions()
         self.autoexpire(autoexpire)
 
@@ -74,6 +75,8 @@ class SupaSet:
         """
         Add a value to the set. Returns True if the value was added, False if it already exists.
         """
+        if not self.case_sensitive:
+            value = value.lower()
         try:
             logger.info(f"Adding {value} to supaset {self.set_name}")
             if value in self:
@@ -85,6 +88,8 @@ class SupaSet:
             logger.error(f"Failed to insert {value}, error: {e}")
 
     def remove(self, value):
+        if not self.case_sensitive:
+            value = value.lower()
         try:
             self._table().delete().eq("value", value).eq(
                 "session_id", str(self.session_id)).eq("set_name", self.set_name).execute()
@@ -115,6 +120,8 @@ class SupaSet:
             logger.error(f"Failed to retrieve values, error: {e}")
             
     def __contains__(self, value):
+        if not self.case_sensitive:
+            value = value.lower()
         logger.info(f"Checking if {value} is in supaset {self.set_name}")
         try:
             data = self._table().select("value").eq("set_name", self.set_name).eq("value", value).execute()

@@ -4,9 +4,25 @@ import logging
 from retry import retry
 import jsonschema
 import json
+import re
 
 # Setup basic logging
 logger = logging.getLogger(__name__)
+
+def extract_json_response(response):
+    """
+    Attempts to extract objects, and lists of objects from a response string.
+    """
+    # Regular expression pattern to find JSON objects and arrays within the string
+    json_regex = r'(\[\s*\{.*\}\s*\]|\{\s*".*":\s*".*",\s*".*":\s*".*"\s*\})'
+    json_match = re.search(json_regex, response, re.DOTALL)
+
+    if json_match:
+        json_data = json_match.group()
+        return json_data
+    
+    return response
+    
 
 class ChatApp:
     MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-3.5-turbo")
@@ -91,20 +107,27 @@ class ChatApp:
             """
             schema_message = json.dumps(json_schema)
             injected_message = f"{message}\n{schema_message}"
+            
             if log_prompt:
                 logger.info(f"Prompting chat app with: {injected_message}")
+                
             response = self.chat(injected_message)
+            extracted_response = extract_json_response(response)
+            
+            if log_prompt:
+                logger.info(f"Chat app response: {response}")
+                if response!=extracted_response:
+                    logger.warning(f"Extracted response: {extracted_response}")
 
             try:                
-                jsonschema.validate(instance=json.loads(response), schema=json_schema)
+                jsonschema.validate(instance=json.loads(extracted_response), schema=json_schema)
             except jsonschema.exceptions.ValidationError as e:
                 logger.warning(f"Response does not obey the provided JSON schema. Retrying...")
                 raise e
             
-            if log_prompt:
-                logger.info(f"Chat app response: {response}")
+
                 
-            return json.loads(response)
+            return json.loads(extracted_response)
         
         return enforce_json_response_inner(self, message, json_schema)
         
