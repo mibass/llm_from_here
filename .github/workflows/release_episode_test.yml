@@ -1,12 +1,12 @@
-name: Episode Release
+name: Test Episode Release
 
 on:
-  schedule:
-    - cron: '0 22 * * 6'  # Runs every Saturday at 10pm UTC
+  # schedule:
+  #   - cron: '0 22 * * 6'  # Runs every Saturday at 10pm UTC
     #- cron: '0 9 * * *'
   workflow_dispatch:
 
-jobs:
+jobs: 
   build:
     runs-on: ubuntu-latest
     steps:
