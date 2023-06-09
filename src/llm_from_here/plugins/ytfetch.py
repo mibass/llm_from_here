@@ -1,7 +1,8 @@
 import os
 import googleapiclient.discovery
 import googleapiclient.errors
-import youtube_dl
+# import youtube_dl
+import yt_dlp as youtube_dl
 import time
 from isodate import parse_duration
 import random
@@ -47,6 +48,9 @@ class YtFetch():
         }
     
     def download_audio(self, video_url, output_file):
+        #strip .wav from output_file
+        output_file = output_file.replace(".wav", "")
+
         ydl_opts = {
             'format': 'bestaudio/best',
             'postprocessors': [{
@@ -87,7 +91,7 @@ class YtFetch():
             logger.info(f"LLM Checking video title {title}")
             prompt = template.render(title=title, description=description, channel_title=channel_title)
             logger.info(f"Prompt: {prompt}")
-            response = chat_app.enforce_json_response(prompt, llm_filter_js)
+            response = chat_app.enforce_json_response(prompt, llm_filter_js, log_prompt=True)
             logger.info(f"Response: {response}")
             if response['answer'] == 'no':
                 return True
