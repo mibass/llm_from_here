@@ -111,6 +111,7 @@ class Intro:
         }
 
         self.validate_required_params()
+        
         #script
         script_prompt = params['script_prompt']
         script_prompt = add_guests_to_prompt(script_prompt, self.guests_set)
@@ -119,24 +120,26 @@ class Intro:
         self.script = self.chat_app.chat(script_prompt)
         logger.info(f"Script: {self.script}")
         
-        #json script
-        self.intro = json.loads(self.chat_app.chat(params['json_script_prompt']))
+        #json script with enforced json
+        self.intro = self.chat_app.enforce_json_response(params['json_script_prompt'], params['json_script_prompt_js'], log_prompt=True)
         logger.info(f"Intro json: {self.intro}")
         
         #json guests
-        self.guests = json.loads(self.chat_app.chat(params['json_guest_prompt']))
+        self.guests = self.chat_app.enforce_json_response(params['json_guest_prompt'], params['json_guest_prompt_js'], log_prompt=True)
         logger.info(f"Guests json: {self.guests}")
 
-        self.extra_prompt_responses = self.get_extra_prompt_responses()
         self.validate_json_responses()
         self.normalize_guest_categories()
         self.apply_guest_list_filter()
         self.update_guest_categories()
         self.apply_guest_count_filter()
+        self.check_guests()
         
         #finalize guests
         set_guests([x['guest_name'] for x in self.guests], self.guests_set)
         self.guests_set.complete_session()
+        
+        self.extra_prompt_responses = self.get_extra_prompt_responses()
         
 
     def validate_required_params(self):
@@ -226,7 +229,6 @@ class Intro:
         assert len(self.guests) < self.params.get("max_guests", 10), "Number of guests must be less than 10."
 
     def execute(self):
-        self.check_guests()
 
         result = {
             "script": self.script,

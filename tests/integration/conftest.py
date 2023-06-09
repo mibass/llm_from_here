@@ -1,6 +1,8 @@
 import pytest
 import logging
 import sys
+from pydub import AudioSegment
+import numpy as np
 
 # Configure logging to output to stdout
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
@@ -32,9 +34,24 @@ def enforce_json_schema():
         "properties": {
             "answer": {
                 "type": "string",
-                "pattern": r"^yes$|^no$"
+                "enum": ["yes", "no"]
             }
         },
         "required": ["answer"]
     }
     
+    
+
+def generate_noisy_audio(duration, sample_rate=44100, channels=2, bit_depth=16):
+    num_samples = int(duration * sample_rate / 1000)
+    random_samples = np.random.randint(
+        -2 ** (bit_depth - 1), 2 ** (bit_depth - 1), size=(num_samples, channels)
+    )
+    audio = AudioSegment(
+        random_samples.tobytes(),
+        frame_rate=sample_rate,
+        sample_width=bit_depth // 8,
+        channels=channels,
+    )
+    audio = audio.set_frame_rate(sample_rate)
+    return audio[:duration]

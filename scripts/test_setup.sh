@@ -16,8 +16,8 @@ source lfh_test_env/bin/activate
 # install the package
 pip install .
 
-# discover and run the tests
-python -m unittest discover tests
+# discover and run the unit tests
+pytest tests/test*.py
 
 # # deactivate the venv
 # deactivate

@@ -82,7 +82,19 @@ class AudioTimeline:
         if self.timeline:
             for entry in reversed(self.timeline):
                 if entry['label'] == label:
-                    return entry['end_time']
+                    if entry['end_time']:
+                        return entry['end_time']
+                    else:
+                        if label == SegmentLabel.FOREGROUND:
+                            return entry['start_time'] + len(entry['audio'])
+                        else:
+                            #get the last foreground entry and use its end time
+                            last_entry = self.get_last_entry(label=SegmentLabel.FOREGROUND)
+                            if last_entry:
+                                entry['end_time'] = last_entry['end_time']
+                                logger.info(f"End time is {entry['end_time']}")
+                                return entry['end_time']
+                        
         return 0
     
     def get_last_entry(self, label=SegmentLabel.FOREGROUND):
@@ -106,6 +118,23 @@ class AudioTimeline:
         return audio.strip_silence(
             silence_thresh=-50, silence_len=50, padding=0)
 
+    def _trim_leading_silence(self, audio, silence_threshold=-50.0, chunk_size=10):
+        """
+        audio is a pydub.AudioSegment
+        silence_threshold in dB
+        chunk_size in ms
+
+        iterate over chunks until you find the first one with audio
+        """
+        trim_ms = 0 # ms
+
+        assert chunk_size > 0 # to avoid infinite loop
+        assert isinstance(audio, AudioSegment) # to avoid other types
+        while audio[trim_ms:trim_ms+chunk_size].dBFS < silence_threshold and trim_ms < len(audio):
+            trim_ms += chunk_size
+
+        return audio[trim_ms:]
+
     def _process_background_audio(self, audio, match_audio):
         bg = audio
         bg_volume_before = bg.dBFS
@@ -117,7 +146,11 @@ class AudioTimeline:
         
         #apply an overall gain to the background audio
         bg_volume_before = bg.dBFS
-        bg = self._apply_gain(bg, self.params.get('background_music_gain', -5))
+        if self.params:
+            bg_gain = self.params.get('background_music_gain', -5)
+        else:
+            bg_gain = -5
+        bg = self._apply_gain(bg, bg_gain)
         if bg.dBFS != bg_volume_before:
             logger.info(
                 f" Changed background volume from {bg_volume_before} to { bg.dBFS}.")
@@ -146,11 +179,11 @@ class AudioTimeline:
         last_entry = self.get_last_entry()
         #extend audio to meet end time, and trim, if necessary
         logging.debug(f"Audio duration: {len(audio)} before looping")
-        self.loop_audio(audio, duration=duration)
+        audio=self.loop_audio(audio, duration=duration)
         logging.debug(f"Audio duration: {len(audio)} after looping")
 
         #process audio
-        audio = self._strip_silence(audio)
+        audio = self._trim_leading_silence(audio)
         if last_entry and gain_match:
             audio = match_target_amplitude(audio, target_dBFS=last_entry['audio'].dBFS)
         logger.info(f"Gain is {gain}")
@@ -197,7 +230,7 @@ class AudioTimeline:
                                  overlay_percentage=overlay_percentage, overlay_duration=overlay_duration,
                                  fade_in=fade_in, fade_out=fade_out, gain=gain, gain_match=gain_match)
         elif label == SegmentLabel.BACKGROUND:
-            self.add_background(audio, start_time=self.get_last_end_time(label=label), name=name, type=type,
+            self.add_background(audio, start_time=self.get_last_end_time(label=SegmentLabel.FOREGROUND), name=name, type=type,
                                 fade_in=fade_in, fade_out=fade_out, gain=gain, gain_match=gain_match)
 
     def add_background(self, audio, start_time=0, end_time=None, fade_in=0, fade_out=0, name=None, type=None, 
@@ -217,7 +250,7 @@ class AudioTimeline:
         last_entry = self.get_last_entry(label=SegmentLabel.BACKGROUND)
         
         audio = self._validate_audio(audio)
-        audio = self._strip_silence(audio)
+        audio = self._trim_leading_silence(audio)
         if last_entry and gain_match:
             audio = match_target_amplitude(audio, target_dBFS=last_entry['audio'].dBFS)
         audio = self._apply_gain(audio, gain)
@@ -241,6 +274,11 @@ class AudioTimeline:
             elif entry['label'] == SegmentLabel.FOREGROUND:
                 if bg_i is not None:
                     bg_ends[bg_i] = entry['end_time']
+
+        #if there was no FG entry after the last BG entry, set to the max end time
+        if bg_i is not None and bg_ends[bg_i] == 0:
+            bg_ends[bg_i] = max([entry['end_time'] for entry in self.timeline if entry['end_time'] is not None],
+                                default=0)
 
         #now set the end times if they aren't already set
         for k, v in bg_ends.items():
@@ -326,6 +364,7 @@ class AudioTimeline:
                 f"Rendered timeline to file {filename} with duration {len(rendered_audio)}")
         except Exception as e:
             print(f"An error occurred while rendering: {str(e)}")
+            raise e
 
     def visualize_timeline(self, output_file='audio_timeline.html'):
         """

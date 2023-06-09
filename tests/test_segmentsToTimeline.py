@@ -134,6 +134,17 @@ class TestSegmentsToTimeline(unittest.TestCase):
 
         # Assert that the audio timeline instance is used and the correct result is returned
         self.assertEqual(result['timeline'], mock_timeline_instance)
+        
+    @patch("llm_from_here.plugins.showTTS.ShowTextToSpeech")
+    def test_fast_TTS(self, mock_showTTS):
+        test_text = "[Hello], world!"
+        expected_filtered_text = ", world!"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            test_output_file = os.path.join(temp_dir, "test.wav")
+            self.stt.fast_TTS(test_text, test_output_file)
+            mock_showTTS.assert_called_once_with()
+            mock_showTTS.return_value.speak.assert_called_once_with(expected_filtered_text, test_output_file, fast=True)
+
 
 
 if __name__ == '__main__':

@@ -12,6 +12,7 @@ from retry import retry
 from llm_from_here.pickleDict import PickleDict
 import appdirs
 import llm_from_here.plugins as plugins
+from llm_from_here.common import is_production
 
 # load env variables
 load_dotenv()  # take environment variables from .env.
@@ -88,9 +89,18 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
         name_key = entry.get('name', '')
         cache_plugin = entry.get('cache', False)
         plugin_retries = entry.get('retries', 1)
+        only_in_prod = entry.get('only_in_prod', False)
+        
+        if plugin_retries > 1:
+            logger.info(
+                f"Retries enabled for plugin '{plugin_name}:{name_key}'.")
         if cache_plugin:
             logger.info(
                 f"Cache enabled for plugin '{plugin_name}:{name_key}'.")
+        if only_in_prod and not is_production():
+            logger.info(
+                f"Skipping plugin '{plugin_name}:{name_key}' because it is only enabled in production.")
+            continue
 
         # Generate hash of the plugin entry
         entry_hash = hashlib.md5(str(entry).encode()).hexdigest()

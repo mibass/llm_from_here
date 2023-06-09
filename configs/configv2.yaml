@@ -1,12 +1,11 @@
 global_params:
 
 plugins:
-  #- !include includes/clear_dev_vid_supaset.yml
   - name: intro
     plugin: intro
     class: Intro
     cache: True
-    retries: 5
+    retries: 10
     params:
       guests_supaset_autoexpire_days: 30
       system_message: >
@@ -24,34 +23,74 @@ plugins:
         A musical background will be played by Chris and the band underneath his introduction, this should be described and denoted in the script with [BACKGROUND MUSIC] and should occur only once at the beginning, and with one or more of the descriptors bluegrass, folk, country, rock, jazz, classical, post-rock. For example :
           [BACKGROUND MUSIC: bluegrass]
 
+            llm_filter_prompt: &llm_filter_prompt >
+              Can you tell me if this video title represents a video that would be appropriate for a 
+              variety show that is meant to be uplifting and simulate nostalgic feelings? I want to 
+              avoid controversial, misogynistic, and political content. You should be more lenient
+              with channels from well known sources like NPR, PBS, and the BBC as well as late night
+              talk shows.
+              
+              Make your best guess attempt and respond only with yes or no.
+
+              The title is "{{ title }}" and the channel title is "{{ channel_title }}
+              and the description is:
+              ```
+               {{ description }}
+              ```
+
+              Respond only with the following schema:
+
+
       json_script_prompt: >
         Now take that intro and format it into JSON. 
         Each line of dialog should be a new object in the JSON array.
-        Background music should get its own object in the array with a speaker name of Music and a dialog of [MUSIC <music_type>], for example [MUSIC bluegrass].
+        Background music should get its own cue in the array with a speaker name of Music and a dialog of [MUSIC <music_type>], for example [MUSIC bluegrass].
         There should be only one music cue, and it should be first.
         Applause breaks should get their own object in the array with a speaker name of Audience and a dialog of [APPLAUSE duration x], for example [APPLAUSE duration 10].
-        The JSON should have the following format
-        [{
-        "speaker": "name of speaker",
-        "dialog": "what the speaker says"
-        }]
         The only valid values for speaker are Music, Chris Thile, and Audience.
-        The JSON response
+        Choose only one music cue and make it the first speaker.
+        Respond only with the following schema:
+
+      json_script_prompt_js:
+        type: array
+        items:
+          type: object
+          properties:
+            speaker:
+              type: string
+              pattern: '^(?i)(music|chris thile|audience)$'
+            dialog:
+              type: string
+              pattern: '^(?i)(\[music [a-z\-]+\]|\[applause duration [0-9]+\]|.+)$'
+          required:
+            - speaker
+            - dialog
+
 
       json_guest_prompt: >
         Now return those guests as JSON. 
         Do not include any explanations, only provide a RFC8259 compliant JSON response following this format without deviation.
         The possible guest_categories are: Music, Comedy, Author, Actor, Improv
-        [{
-        "guest_category": "category of guest",
-        "guest_name": "name of guest"
-        }]
         All music guests  should repeat 2 to 3 times and be intermixed throughout the show.
         All Comedy, Author, Actor, and Improv guests should only appear once.
         The total number of entries in the list should be between 7 and 10.
         A guest_name should have the same guest_category each time it is listed.
         The only possible guest_categories are: Music, Comedy, Author, Actor, Improv
-        The JSON response:
+        Respond only with the following schema:
+
+      json_guest_prompt_js:
+        type: array
+        items:
+          type: object
+          properties:
+            guest_category:
+              type: string
+              pattern: '^(?i)(music|comedy|author|actor|improv)$'
+            guest_name:
+              type: string
+          required:
+            - guest_category
+            - guest_name
 
       extra_prompts:
         - name: story
@@ -86,11 +125,12 @@ plugins:
         - to be determined
         - "*name*"
         - "[*"
-        - "comedi*"
+        - "*comedi*"
         - "*artist*"
         - "*author*"
         - "*actor*"
         - "*music*"
+        - "test*"
 
       guest_category_options:
         - music
@@ -107,12 +147,12 @@ plugins:
         improv: 1
 
 
-      
+    
   - name: intro_audio
     plugin: segmentsToTimeline
     class: SegmentsToTimeline
     cache: True
-    cb: 16
+    cb: 19
     params:
       segments_object: intro_intro
       segment_type_key: speaker
@@ -149,7 +189,7 @@ plugins:
     plugin: segmentsToTimeline
     class: SegmentsToTimeline
     cache: True
-    cache_buster: 6
+    cache_buster: 7
     params:
       timeline_variable: intro_audio_timeline
       segments_object: intro_guests
@@ -234,7 +274,7 @@ plugins:
     plugin: segmentsToTimeline
     class: SegmentsToTimeline
     # cache: True
-    cb: 16
+    cb: 17
     params:
       timeline_variable: guests_audio_timeline
       segment_type_map:
@@ -252,45 +292,44 @@ plugins:
     params:
       timeline_variable: instrumental_timeline
 
-  # - name: final_audio
-  #   plugin: stitchAudio
-  #   class: StitchAudio
-  #   params:
-  #     name: final_audio
-  #     output_format: mp3
-  #     segments_list: 
-  #       - audio_render_file_path
+  - name: final_audio
+    plugin: stitchAudio
+    class: StitchAudio
+    params:
+      name: final_audio
+      output_format: mp3
+      segments_list: 
+        - audio_render_file_path
+
+  - name: lfh_rss
+    plugin: podcastManager
+    class: PodcastManager
+    only_in_prod: True
+    params:
+      podcast_title: LLM From Here - Episode {{ episode_number }}
+      final_guests_list_variable: guests_audio_segments
+      final_guests_list_key: guest_name
+      source_file_name_variable: final_audio_stitch_stitched_audio_file
+      podcast_description_template: >
+        On tonight's episode of LLM From Here:
+        {% for guest in guests_audio_segments %}
+          {{ guest }}
+        {% endfor %}
+        https://github.com/mibass/llm_from_here
+      podcast_description_character_limit: 500
+      podcast_feed_url: https://feed.podbean.com/llmfromhere/feed.xml
+      podcast_file_name_final_template: llm_from_here_{{ gen_date.strftime('%Y%m%d') }}_episode_{{ episode_number }}.mp3
 
 
-  # - name: lfh_rss
-  #   plugin: podcastManager
-  #   class: PodcastManager
-  #   # cache: True
-  #   # cache_buster: 2
-  #   params:
-  #     podcast_title: LLM From Here - Episode {{ episode_number }}
-  #     final_guests_list_variable: guests_audio_segments
-  #     final_guests_list_key: guest_name
-  #     source_file_name_variable: final_audio_stitch_stitched_audio_file
-  #     podcast_description_template: >
-  #       On tonight's episode of LLM From Here:
-  #       {% for guest in guests_audio_segments %}
-  #         {{ guest }}
-  #       {% endfor %}
-  #       https://github.com/mibass/llm_from_here
-  #     podcast_description_character_limit: 500
-  #     podcast_feed_url: https://feed.podbean.com/llmfromhere/feed.xml
-  #     podcast_file_name_final_template: llm_from_here_{{ gen_date.strftime('%Y%m%d') }}_episode_{{ episode_number }}.mp3
-
-
-  # - name: lfh_podbean
-  #   plugin: podbeanManager
-  #   class: PodbeanManager
-  #   params:
-  #     file_path_variable: lfh_rss_podcast_file_path
-  #     episode_number_variable: lfh_rss_episode_number
-  #     description_variable: lfh_rss_podcast_description
-  #     title_variable: lfh_rss_podcast_title
-  #     max_episodes: 3
+  - name: lfh_podbean
+    plugin: podbeanManager
+    class: PodbeanManager
+    only_in_prod: True
+    params:
+      file_path_variable: lfh_rss_podcast_file_path
+      episode_number_variable: lfh_rss_episode_number
+      description_variable: lfh_rss_podcast_description
+      title_variable: lfh_rss_podcast_title
+      max_episodes: 3
       
 

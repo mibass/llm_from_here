@@ -77,7 +77,7 @@ class ChatApp:
             logging.error(f"Error saving conversation: {e}")
             raise
         
-    def enforce_json_response(self, message, json_schema, tries=5, delay=2, backoff=2):
+    def enforce_json_response(self, message, json_schema, log_prompt=False, tries=5, delay=2, backoff=2):
         @retry((jsonschema.exceptions.ValidationError), tries=tries, delay=delay, backoff=backoff)
         def enforce_json_response_inner(self, message, json_schema):
             """
@@ -91,6 +91,8 @@ class ChatApp:
             """
             schema_message = json.dumps(json_schema)
             injected_message = f"{message}\n{schema_message}"
+            if log_prompt:
+                logger.info(f"Prompting chat app with: {injected_message}")
             response = self.chat(injected_message)
 
             try:                
@@ -98,6 +100,10 @@ class ChatApp:
             except jsonschema.exceptions.ValidationError as e:
                 logger.warning(f"Response does not obey the provided JSON schema. Retrying...")
                 raise e
+            
+            if log_prompt:
+                logger.info(f"Chat app response: {response}")
+                
             return json.loads(response)
         
         return enforce_json_response_inner(self, message, json_schema)

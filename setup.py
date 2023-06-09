@@ -41,7 +41,8 @@ setup(
         'matplotlib',
         'pandas',
         'freesound-python @ git+https://github.com/MTG/freesound-python.git#egg=freesound',
-        'pyyaml-include'
+        'pyyaml-include',
+        'pytest'
     ],
     python_requires=">=3.10"
 )

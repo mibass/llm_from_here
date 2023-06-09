@@ -1,7 +1,7 @@
 
 import unittest
 from unittest.mock import patch, MagicMock, call
-from pydub import AudioSegment
+from pydub import AudioSegment, generators
 import os
 from llm_from_here.plugins.audioTimeline import AudioTimeline, SegmentLabel
 import tempfile
@@ -126,6 +126,15 @@ class AudioTimelineTest(unittest.TestCase):
 
             # Assert that the timeline HTML visualization exists in the output folder
             self.assertTrue(os.path.isfile(result['timeline_html']))
+            
+    def test_trim_leading_silence(self):
+        audio = AudioSegment.silent(duration=3000)  # 3 seconds of silence
+        audio += generators.Sine(440).to_audio_segment(duration=2000).fade_in(1000).fade_out(1000)  # 2 seconds of audio
+
+        trimmed_audio = self.timeline._trim_leading_silence(audio)
+
+        self.assertEqual(len(trimmed_audio), 2000)  # Trimmed audio should have 2 seconds of audio
+
 
     def tearDown(self):
         # Clean up any resources used by the test case

@@ -74,7 +74,16 @@ class SegmentsToTimeline():
     def fast_TTS(self, text, output_file):
         if self.show_tts is None:
             self.show_tts = showTTS.ShowTextToSpeech()
-        self.show_tts.speak(text, output_file, fast=True)
+        #filter out any text in brackets
+        text_filtered = re.sub(r'\[.*?\]', '', text)
+        if text != text_filtered:
+            logger.info(f"Filtered out text in brackets. Original: {text}. Filtered: {text_filtered}")
+        if len(text_filtered.strip()) == 0:
+            logger.info(f"Text is empty after filtering. Skipping TTS.")
+            return False
+        else:
+            self.show_tts.speak(text_filtered, output_file, fast=True)
+        
         return True
 
     # def slow_TTS(self, text, output_file):
@@ -134,7 +143,7 @@ class SegmentsToTimeline():
             logger.info(f"No data found. Using segment_type_map instead.")
             #if no data, assume segment_type_map is the list
             data = []
-            for k,_ in self.params['segment_type_map'].items():
+            for k,_ in self.params.get('segment_type_map', {}).items():
                 data.append({type_key: k, value_key: ''})
             logger.info(f"Data is now: {data}")
         return data
@@ -143,7 +152,7 @@ class SegmentsToTimeline():
         output_folder = self.global_results['output_folder']
         type_key = self.params.get('segment_type_key', 'speaker')
         value_key = self.params.get('segment_value_key', 'dialog')
-        segment_type_map = self.params['segment_type_map']
+        segment_type_map = self.params.get('segment_type_map', {})
         segment_transition_map = self.params.get('segment_transition_map', [])
 
         for i, entry in enumerate(self.get_data(type_key, value_key)):
@@ -155,10 +164,9 @@ class SegmentsToTimeline():
             segment_type = entry[type_key].lower()
             if segment_type not in segment_type_map:
                 if 'default' not in segment_type_map:
-                    logger.error(
-                        f"No function found for segment type: {segment_type} and no default set")
-                    raise Exception(
-                        f"No function found for segment type: {segment_type} and no default set")
+                    logger.warning(
+                        f"No function found for segment type: {segment_type} and no default set. Skipping segment.")
+                    continue
                 logger.warning(
                     f"No function found for segment type: {segment_type}. Using default function.")
                 segment_type = 'default'

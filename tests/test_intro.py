@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import Mock, MagicMock, patch
 from llm_from_here.plugins.intro import Intro, validate_json_response, filter_guests_count, match_categories
+import json
 
 class TestIntro(unittest.TestCase):
     @classmethod
@@ -17,7 +18,30 @@ class TestIntro(unittest.TestCase):
             'system_message': 'Hello',
             'script_prompt': 'Intro script',
             'json_script_prompt': 'Json intro',
+            'json_script_prompt_js': {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "speaker": {"type": "string"},
+                        "dialog": {"type": "string"}
+                    },
+                    "required": ["speaker", "dialog"]
+                }
+            },
+            'guests_supaset_autoexpire_days': 90,
             'json_guest_prompt': 'Json guests',
+            'json_guest_prompt_js': {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "guest_category": {"type": "string"},
+                        "guest_name": {"type": "string"}
+                    },
+                    "required": ["guest_category", "guest_name"]
+                }
+            },
             'extra_prompts': [{'name': 'test_name', 'prompt': 'test_prompt'}]  # add this line
         }
         self.global_params = {}
@@ -26,10 +50,12 @@ class TestIntro(unittest.TestCase):
         # Different return values for different chat_app.chat calls.
         self.chat_app.chat.side_effect = [
             'script_response',
-            '[{"speaker": "test_speaker", "dialog": "test_dialog"}]',
-            '[{"guest_category": "test_category", "guest_name": "test_name"}]',
             'extra_prompt_response',
             'extra_prompt_response'
+        ]
+        self.chat_app.enforce_json_response.side_effect = [
+            json.loads('[{"speaker": "test_speaker", "dialog": "test_dialog"}]'),
+            json.loads('[{"guest_category": "test_category", "guest_name": "test_name"}]')
         ]
         # Get the mock instance of the SupaSet class
         # Get the mock instance of the SupaSet class
