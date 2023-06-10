@@ -104,7 +104,9 @@ plugins:
         - no guests
         - no guests this week
         - tbd
+        - tba
         - to be determined
+        - to be announced
         - "*name*"
         - "[*"
         - "*comedi*"
@@ -113,6 +115,8 @@ plugins:
         - "*actor*"
         - "*music*"
         - "test*"
+        - "*band*"
+        - "*announced*"
 
       guest_category_options:
         - music
@@ -252,7 +256,7 @@ plugins:
             additional_query_text:  ("comedy bang bang"|"improv scene"|"improv4humans"|"Spontaneanation")
             duration_search_filter: medium
             duration_min_sec: 300
-            duration_max_sec: 660
+            duration_max_sec: 900
 
   - name: instrumental
     plugin: segmentsToTimeline
