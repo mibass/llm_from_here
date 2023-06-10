@@ -139,6 +139,7 @@ plugins:
       segments_object: intro_intro
       segment_type_key: speaker
       segment_value_key: dialog
+      background_music_gain: -10
       segment_type_map:
         music:
           segment_type: youtube_playlist
@@ -198,9 +199,9 @@ plugins:
           segment_type: youtube_search
           arguments:
             additional_query_text: "live performance"
-            duration_search_filter: short
+            duration_search_filter: medium
             duration_min_sec: 180
-            duration_max_sec: 660
+            duration_max_sec: 600
         comedy:
           <<: *default
           segment_type: youtube_search
@@ -211,10 +212,10 @@ plugins:
             duration_max_sec: 660
             description_filters:
               - female
-        author:
+        author: &author
           <<: *default
           arguments:
-            additional_query_text: (monologue|story|reading|"live from here")
+            additional_query_text: (interview|monologue|story|reading|"live from here")
             duration_search_filter: medium
             duration_min_sec: 300
             duration_max_sec: 660
@@ -242,7 +243,8 @@ plugins:
                   pattern: '^(?i)(yes|no)$'
               required:
                 - answer
-
+        actor:
+          <<: *author
         improv:
           <<: *default
           segment_type: youtube_search

@@ -80,11 +80,11 @@ class SegmentsToTimeline():
             logger.info(f"Filtered out text in brackets. Original: {text}. Filtered: {text_filtered}")
         if len(text_filtered.strip()) == 0:
             logger.info(f"Text is empty after filtering. Skipping TTS.")
-            return False
+            return None
         else:
             self.show_tts.speak(text_filtered, output_file, fast=True)
         
-        return True
+        return {}
 
     # def slow_TTS(self, text, output_file):
     #     self.show_tts.speak(text, output_file, fast=False)

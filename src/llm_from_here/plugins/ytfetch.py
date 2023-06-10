@@ -157,24 +157,25 @@ class YtFetch():
             if self.description_filter(full_description, description_filters):
                 continue
             
+            #check duration
+            if min_duration and max_duration:
+                if not (min_duration <= duration_seconds <= max_duration):
+                    logger.info(f"Video {video_id} duration {duration_seconds} does not fall within the specified range, {min_duration}:{max_duration}. Skipping.")
+                    continue
+            
             #llm filter for title and description and channel_title
             if self.llm_filter_title(chat_app, llm_filter_prompt, llm_filter_js, 
                                      title, full_description, channel_title):
                 logger.info(f"Video https://www.youtube.com/watch?v={video_id} removed by llm filter. Skipping.")
                 continue
             
-            
-            # If the duration falls within the specified range, return this video
-            if min_duration and max_duration:
-                if min_duration <= duration_seconds <= max_duration:
-                    return {
+            # if everything passes, return the video
+            return {
                         'video_id': video_id,
                         'title': title,
                         'channel_title': channel_title,
                         'video_url': f"https://www.youtube.com/watch?v={video_id}"
                     }
-                else:
-                    logger.info(f"Video {video_id} duration {duration_seconds} does not fall within the specified range, {min_duration}:{max_duration}. Skipping.")
 
         # If no videos in the specified duration range were found, return None
         return None
