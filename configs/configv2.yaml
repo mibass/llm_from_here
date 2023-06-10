@@ -297,7 +297,7 @@ plugins:
       podcast_title: LLM From Here - Episode {{ episode_number }}
       final_guests_list_variable: guests_audio_segments
       final_guests_list_key: guest_name
-      source_file_name_variable: final_audio_stitch_stitched_audio_file
+      source_file_name_variable: final_audio_stitched_audio_file
       podcast_description_template: >
         On tonight's episode of LLM From Here:
         {% for guest in guests_audio_segments %}
