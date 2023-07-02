@@ -80,6 +80,9 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
     output_folder = os.path.join(outputs_dir, f"{show_name}_run{run_count}")
     os.makedirs(output_folder, exist_ok=True)
     global_results['output_folder'] = output_folder
+    
+    # list of objects that need to be finalized at the end of a successful run
+    to_be_finalized = []
 
     # Execute plugins
     for entry in data.get('plugins', []):
@@ -106,7 +109,9 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
         entry_hash = hashlib.md5(str(entry).encode()).hexdigest()
 
         # Check if cache is enabled and entry is in cache
+        from_cache = False
         if cache_plugin and entry_hash in plugin_cache:
+            from_cache = True
             plugin_results = plugin_cache[entry_hash]
             logger.info(
                 f"Plugin '{plugin_name}' results retrieved from cache.")
@@ -139,10 +144,19 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
         for key, value in plugin_results.items():
             prepended_key = f'{name_key}_{key}' if name_key else key
             prepended_results[prepended_key] = value
+            
+            # If the plugin has a finalize method, add it to the list of objects to be finalized
+            if not from_cache and hasattr(value, 'finalize'):
+                to_be_finalized.append(value)
+            
+        logger.info(f"Plugin '{plugin_name}' results: {prepended_results}")
 
         # Merge prepended results into global results
         global_results.update(prepended_results)
         
+    #finalize
+    for obj in to_be_finalized:
+        obj.finalize()
 
 def get_last_run_count(show_name, outputs_dir):
     folders = [folder for folder in os.listdir(

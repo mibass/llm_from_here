@@ -1,0 +1,54 @@
+guest_categories:
+  - name: music
+    queue_size: 100
+    prompt: >
+      Generate a list of band names that would be appropriate for a sometimes nostalgic, sometimes hip, sometimes avante garde variety show on NPR.
+      These should be real band names that are not controversial, misogynistic, or political.
+      They should not be made up.
+      Give priority to guests if they've been on Live From Here, Live On KEXP, Morning Becomes Electic, or Tiny desk concerts.
+      Make sure no more than 25% of the bands are from the same genre.
+    select_n: 2
+    n_times: 2
+    n_times_probability: 0.75
+  - name: comedy
+    queue_size: 100
+    prompt: >
+      Generate a list of comedian names that would be appropriate for a sometimes nostalgic, sometimes hip, sometimes avante garde variety show on NPR.
+      These should be real names that are not controversial, misogynistic, or political.
+      They can be historical, but not fictional. They should be relatively recent and have performances readily availabe 
+      on youtube, NPR, or other sources.
+      They should not be made up.
+      Give priority to guests if they've been on Live From Here, Colbert, Conan or similar shows.
+      They should be a mix of popular and less famous comedians.
+  - name: author
+    queue_size: 100
+    prompt: >
+      Generate a list of author names that would be appropriate for a sometimes nostalgic, sometimes hip, sometimes avante garde variety show on NPR.
+      These should be real names that are not controversial, misogynistic, or political.
+      They can be historical, but not fictional. They should be relatively recent and have interviews readily availabe 
+      on youtube, NPR, or other sources.
+      They should not be made up.
+      Give priority to guests if they've been on Live From Here, Colbert, Conan.
+      They should be a mix of literature genres.
+    select_probability: 0.5
+  - name: actor
+    queue_size: 100
+    prompt: >
+      Generate a list of actor names that would be appropriate for a sometimes nostalgic, sometimes hip, sometimes avante garde variety show on NPR.
+      These should be real names that are not controversial, misogynistic, or political.
+      They can be historical, but not fictional. They should be relatively recent and have interviews readily availabe 
+      on youtube, NPR, or other sources.
+      They should not be made up.
+      Give priority to guests if they've been on Live From Here, Colbert, Conan or similar shows.
+    select_probability: 0.5
+  - name: improv
+    queue_size: 100
+    prompt: >
+      Generate a list of improv comedian names that would be appropriate for a sometimes nostalgic, sometimes hip, sometimes avante garde variety show on NPR.
+      These should be real names that are not controversial, misogynistic, or political.
+      They can be historical, but not fictional. They should be relatively recent and have performances readily availabe 
+      on youtube, NPR, or other sources.
+      They should not be made up.
+      Give priority to guests if they've been on comedy bang bang, improv4humans, or superego podcasts.
+      Do not include stand-up comedians.
+      They should have attended either UCB, Second City, Groundlings, or a similar improv school.

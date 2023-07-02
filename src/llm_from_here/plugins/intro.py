@@ -85,30 +85,6 @@ class Intro:
         supaset_name = f'{is_production_prefix()}guests_set'
         self.guests_set = SupaSet(supaset_name,
                                           autoexpire = params.get('guests_supaset_autoexpire_days', 90))
-        
-
-        self.intro_schema = {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "speaker": {"type": "string"},
-                    "dialog": {"type": "string"}
-                },
-                "required": ["speaker", "dialog"]
-            }
-        }
-        self.guests_schema = {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "guest_category": {"type": "string"},
-                    "guest_name": {"type": "string"}
-                },
-                "required": ["guest_category", "guest_name"]
-            }
-        }
 
         self.validate_required_params()
         
@@ -128,7 +104,6 @@ class Intro:
         self.guests = self.chat_app.enforce_json_response(params['json_guest_prompt'], params['json_guest_prompt_js'], log_prompt=True)
         logger.info(f"Guests json: {self.guests}")
 
-        self.validate_json_responses()
         self.normalize_guest_categories()
         self.apply_guest_list_filter()
         self.update_guest_categories()
@@ -157,10 +132,6 @@ class Intro:
             extra_prompt_responses[prompt['name']] = self.chat_app.chat(prompt['prompt'])
             logger.info(f"Extra prompt response: {extra_prompt_responses[prompt['name']]}")
         return extra_prompt_responses
-
-    def validate_json_responses(self):
-        validate_json_response(self.intro, self.intro_schema)
-        validate_json_response(self.guests, self.guests_schema)
 
     def normalize_guest_categories(self):
         """

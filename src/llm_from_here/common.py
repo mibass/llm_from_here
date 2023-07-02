@@ -30,3 +30,15 @@ def is_production_prefix():
         return f"{os.getenv('LLMFH_ENV')}_"
     else:
         return 'dev_'
+    
+def get_nested_value(dictionary, path, default=None):
+    keys = path.split('.')
+    value = dictionary
+    try:
+        for key in keys:
+            if isinstance(value, list) and key.isdigit():
+                key = int(key)
+            value = value[key]
+        return value
+    except (KeyError, TypeError, IndexError):
+        return default

@@ -61,9 +61,9 @@ class SupaSet:
             if isinstance(autoexpire, int):
                 #delete entries older than autoexpire days
                 current_date = datetime.now()
-                date_90_days_ago = current_date - timedelta(days=90)
-                data = self._table().delete().eq("set_name", self.set_name).lt("created_at", date_90_days_ago).execute()
-                logger.info(f"Deleted entries older than {autoexpire} days {date_90_days_ago} for set {self.set_name}; data: {data}")
+                date_days_ago = current_date - timedelta(days=autoexpire)
+                data = self._table().delete().eq("set_name", self.set_name).lt("created_at", date_days_ago).execute()
+                logger.info(f"Deleted entries older than {autoexpire} days {date_days_ago} for set {self.set_name}; data: {data}")
             else:
                 logger.error(f"Invalid autoexpire value: {autoexpire}")
                 raise Exception(f"Invalid autoexpire value: {autoexpire}")

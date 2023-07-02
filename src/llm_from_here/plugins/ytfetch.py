@@ -12,6 +12,8 @@ from retry import retry
 from llm_from_here.supaSet import SupaSet
 from jinja2 import Template
 from llm_from_here.common import is_production_prefix
+import ytmusicapi
+from llm_from_here.common import get_nested_value
 
 import logging
 logger = logging.getLogger(__name__)
@@ -22,6 +24,7 @@ class YtFetch():
     def __init__(self, **kwargs):
         self.youtube = googleapiclient.discovery.build("youtube", "v3", 
                                                        developerKey=os.environ['YT_API_KEY'])
+        self.ytmusic = ytmusicapi.YTMusic()
         self.last_response = None
         supaset_name = f'{is_production_prefix()}ytfetch_video_ids_returned'
         self.video_ids_returned = SupaSet(supaset_name,
@@ -29,25 +32,59 @@ class YtFetch():
         
     
     def search_video(self, query, orderby="relevance"):
+        return self.search_videos(query, orderby=orderby, max_results=1)[0]
+    
+    def search_videos(self, query, duration_search_filter=None, orderby="relevance", max_results=30):
         
         request = self.youtube.search().list(
             part="snippet",
             type="video",
             q=query,
-            videoDefinition="high",
-            maxResults=1,
-            fields="items(id(videoId),snippet(channelId,title,description,thumbnails,channelTitle))))",
-            order=orderby
+            videoDefinition="any",
+            videoDuration="any" if duration_search_filter is None else duration_search_filter,
+            maxResults=30,
+            fields="items(id(videoId),snippet(channelId,title,description,channelTitle))",
+            safeSearch="strict",
+            order=orderby #rating, relevance, viewCount, date, title, videoCount
         )
         response = request.execute()
         self.last_response = response
-        return {'video_id': response['items'][0]['id']['videoId'],
-                'title': html.unescape(response['items'][0]['snippet']['title']),
-                'thumbnail': response['items'][0]['snippet']['thumbnails']['high']['url'],
-                'video_url': f"https://www.youtube.com/watch?v={response['items'][0]['id']['videoId']}"
-        }
+        videos = []
+        for item in response['items']:
+            videos.append({
+                'video_id': item['id']['videoId'],
+                'title': html.unescape(item['snippet']['title']),
+                'description': html.unescape(item['snippet']['description']),
+                'channel_title': html.unescape(item['snippet']['channelTitle']),
+                'video_url': f"https://www.youtube.com/watch?v={item['id']['videoId']}"
+            })
+        
+        return videos
+        
+    def search_music(self, query, orderby=None, max_results=30):
+        results = self.ytmusic.search(query, filter="videos", limit=max_results)
+        
+        videos = []
+        for result in results:
+            #convert duration to seconds from HH:MM:SS, or MM:SS, or SS formats
+            duration = None
+            if duration_text := result.get('duration', None):
+                duration = 0
+                for i, d in enumerate(reversed(duration_text.split(':'))):
+                    duration += int(d) * 60**i
+            
+            videos.append({
+                'video_id': result['videoId'],
+                'title': get_nested_value(result, 'artists.0.name', '') + ' - ' + result['title'],
+                'description': None,
+                'channel_title': get_nested_value(result, 'artists.0.name', ''),
+                'video_url': f"https://www.youtube.com/watch?v={result['videoId']}",
+                'duration': duration
+            })
+        return videos
+        
     
-    def download_audio(self, video_url, output_file):
+    def download_audio(self, video_url, output_file, max_duration=None):
         #strip .wav from output_file
         output_file = output_file.replace(".wav", "")
 
@@ -60,8 +97,17 @@ class YtFetch():
             }],
             'outtmpl': output_file,
             'nocheckcertificate': True, 
-            "quiet": True
+            "quiet": True,
+            'noprogress': True,
+            # 'verbose': True
         }
+        if max_duration:
+            logger.info(f"Setting max duration to {max_duration}")
+            def download_ranges_callback(info_dict, ydl):
+                return [ {'start_time': 0, 'end_time': max_duration, 'title': 'Section 1', 'index': 1}]
+            ydl_opts['download_ranges'] = download_ranges_callback
+
+        
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
         time.sleep(5)
@@ -79,8 +125,11 @@ class YtFetch():
     
     def duration_in_seconds(self, iso_duration):
         """Helper function to convert ISO 8601 duration to seconds"""
-        duration = parse_duration(iso_duration)
-        return duration.total_seconds()
+        if iso_duration is None:
+            return None
+        else:
+            duration = parse_duration(iso_duration)
+            return duration.total_seconds()
 
     def llm_filter_title(self, chat_app, llm_filter_prompt, llm_filter_js, title, description, channel_title):
         """
@@ -107,30 +156,28 @@ class YtFetch():
         chat_app = kwargs.get('chat_app')
         min_duration = kwargs.get('duration_min_sec')
         max_duration = kwargs.get('duration_max_sec')
+        truncation_duration_sec = kwargs.get('truncation_duration_sec')
+        random_shuffle = kwargs.get('random_shuffle', False)
+        use_music = kwargs.get('use_music_search', False)
 
         # First, perform a general search
-        request = self.youtube.search().list(
-            part="snippet",
-            type="video",
-            q=query,
-            videoDefinition="any",
-            videoDuration="any" if duration_search_filter is None else duration_search_filter,
-            maxResults=30,
-            fields="items(id(videoId),snippet(channelId,title,description,channelTitle))",
-            safeSearch="strict",
-            order=orderby #rating, relevance, viewCount, date, title, videoCount
-        )
-        response = request.execute()
+        if use_music:
+            videos = self.search_music(query, max_results=30)
+        else:
+            videos = self.search_videos(query, duration_search_filter, orderby, max_results=30)
+
 
         # Randomize the order of items in the response
-        random.shuffle(response['items'])
+        if random_shuffle:
+            random.shuffle(videos)
     
         # Now, for each video in the search results, check the duration
-        for item in response['items']:
-            video_id = item['id']['videoId']
-            title = html.unescape(item['snippet']['title'])
-            description_trimmed = html.unescape(item['snippet']['description'])
-            channel_title = html.unescape(item['snippet']['channelTitle'])
+        for video in videos:
+            video_id = video['video_id']
+            title = video['title']
+            description_trimmed = video['description']
+            channel_title = video['channel_title']
+            duration_seconds = video['duration'] if use_music else None
             
             # Check if this video has already been returned
             if not self.video_ids_returned.add(video_id):
@@ -141,24 +188,30 @@ class YtFetch():
             if self.description_filter(description_trimmed, description_filters):
                 continue
         
-            # Fetch the video details
-            video_request = self.youtube.videos().list(
-                part="snippet, contentDetails",
-                id=video_id
-            )
-            video_response = video_request.execute()
+            # Fetch the video details, only for non-music searches
+            if not use_music:
+                video_request = self.youtube.videos().list(
+                    part="snippet, contentDetails",
+                    id=video_id
+                )
+                video_response = video_request.execute()
 
-            # Get the video duration and description
-            duration = video_response['items'][0]['contentDetails']['duration']
-            duration_seconds = self.duration_in_seconds(duration)
-            full_description = html.unescape(video_response['items'][0]['snippet']['description'])
+                # Get the video duration and description
+                duration = video_response['items'][0]['contentDetails']['duration']
+                duration_seconds = self.duration_in_seconds(duration)
+                full_description = html.unescape(video_response['items'][0]['snippet']['description'])
             
-            # Check if the full description contains the filter string
-            if self.description_filter(full_description, description_filters):
-                continue
+                # Check if the full description contains the filter string
+                if self.description_filter(full_description, description_filters):
+                    continue
+            else:
+                full_description = description_trimmed
             
             #check duration
             if min_duration and max_duration:
+                if duration_seconds is None:
+                    logger.info(f"Video {video_id} duration is None. Skipping.")
+                    continue
                 if not (min_duration <= duration_seconds <= max_duration):
                     logger.info(f"Video {video_id} duration {duration_seconds} does not fall within the specified range, {min_duration}:{max_duration}. Skipping.")
                     continue
@@ -174,7 +227,8 @@ class YtFetch():
                         'video_id': video_id,
                         'title': title,
                         'channel_title': channel_title,
-                        'video_url': f"https://www.youtube.com/watch?v={video_id}"
+                        'video_url': f"https://www.youtube.com/watch?v={video_id}",
+                        'truncation_duration_sec': truncation_duration_sec
                     }
 
         # If no videos in the specified duration range were found, return None
@@ -208,11 +262,13 @@ class YtFetch():
 
         # If a video was found, download its audio
         video_id = video['video_id']
-        logger.info(f"Video Title: {video['title']}")
+        logger.info(f"Video returned: {video}")
         if output_file is None:
             output_file = f"{video_id}.wav"
         
-        self.download_audio(video['video_url'], output_file)
+        truncation_duration_sec = video.get('truncation_duration_sec')
+        
+        self.download_audio(video['video_url'], output_file, truncation_duration_sec)
         logger.info(f"Audio saved as {output_file}")
         
         return video

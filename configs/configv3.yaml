@@ -1,13 +1,20 @@
 global_params:
 
 plugins:
-  - name: intro
-    plugin: intro
-    class: Intro
-    cache: True
-    retries: 10
+  - name: guest_selection
+    plugin: guestSelection
+    class: GuestSelection
+    cache: False
     params:
-      guests_supaset_autoexpire_days: -1
+      !include includes/guest_selection.yml
+
+  - name: intro
+    plugin: introFromGuestlist
+    class: IntroFromGuestlist
+    cache: True
+    retries: 5
+    params:
+      guests_parameter: guest_selection_guests
       system_message: >
         You are a big shot new york live show producer, writer, and performer. 
         You are current the show runner for the Live From Here show and are calling all the shots. 
@@ -15,8 +22,7 @@ plugins:
 
       script_prompt: >
         Write a script for the intro to be read Verbatim by Chris Thile.  
-        Chris should announce a guest list that should include 2 or 3 musical acts, 1 comedian, 1 author or actor, and 1 improv comedian who has been on the Comedy Bang Bang, improv4humans, or SuperEgo podcasts.  
-        These should be actual people that exist and Chris should say their real names.  
+        Chris should announce these guests: {{ guests }}.
         This intro segment should be about 5 minutes long and end with Chris announcing the guests.  
         Applause breaks and duration should be added and denoted with [APPLAUSE duration x] where x is in seconds and could be between 3 and 6 seconds, for example:
           [APPLAUSE 5 seconds]
@@ -48,32 +54,6 @@ plugins:
             - speaker
             - dialog
 
-
-      json_guest_prompt: >
-        Now return those guests as JSON. 
-        Do not include any explanations, only provide a RFC8259 compliant JSON response following this format without deviation.
-        The possible guest_categories are: Music, Comedy, Author, Actor, Improv
-        All music guests  should repeat 2 to 3 times and be intermixed throughout the show.
-        All Comedy, Author, Actor, and Improv guests should only appear once.
-        The total number of entries in the list should be between 7 and 10.
-        A guest_name should have the same guest_category each time it is listed.
-        The only possible guest_categories are: Music, Comedy, Author, Actor, Improv
-        Respond only with the following schema:
-
-      json_guest_prompt_js:
-        type: array
-        items:
-          type: object
-          properties:
-            guest_category:
-              type: string
-              pattern: '^(?i)(music|comedy|author|actor|improv)$'
-            guest_name:
-              type: string
-          required:
-            - guest_category
-            - guest_name
-
       extra_prompts:
         - name: story
           prompt: > 
@@ -94,48 +74,7 @@ plugins:
               [BACKGROUND MUSIC: bluegrass]
               [BACKGROUND MUSIC: post-rock]
 
-
-      guest_name_filters: 
-        - n/a
-        - not specified
-        - not applicable
-        - not available
-        - not available at this time
-        - none
-        - no one
-        - no guests
-        - no guests this week
-        - tbd
-        - tba
-        - to be determined
-        - to be announced
-        - "*name*"
-        - "[*"
-        - "*comedi*"
-        - "*artist*"
-        - "*author*"
-        - "*actor*"
-        - "*music*"
-        - "test*"
-        - "*band*"
-        - "*announced*"
-
-      guest_category_options:
-        - music
-        - comedy
-        - author
-        - actor
-        - improv
-
-      guest_count_filters:
-        music: 3
-        comedy: 1
-        author: 1
-        actor: 1
-        improv: 1
-
-
-    
+   
   - name: intro_audio
     plugin: segmentsToTimeline
     class: SegmentsToTimeline
@@ -340,10 +279,9 @@ plugins:
   - name: lfh_rss
     plugin: podcastManager
     class: PodcastManager
-    only_in_prod: True
     params:
       podcast_title: LLM From Here - Episode {{ episode_number }}
-      final_guests_list_variable: guests_audio_segments
+      final_guests_list_variable: intro_guests
       final_guests_list_key: guest_name
       source_file_name_variable: final_audio_stitched_audio_file
       podcast_description_template: >
@@ -368,4 +306,3 @@ plugins:
       title_variable: lfh_rss_podcast_title
       max_episodes: 3
       
-

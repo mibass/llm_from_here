@@ -64,7 +64,7 @@ class SegmentsToTimeline():
         output_dir = os.path.dirname(output_file)
         self.freesound_fetch.out_dir = output_dir
         query = f"{music_type} {additional_query_text}"
-        logger.info(f"Retreiving freesound music with query: {query}")
+        logger.info(f"Retreiving freesound music with query: {query}, duration: {duration_min_sec} to {duration_max_sec}")
         self.freesound_fetch.search_and_download_top_samples(query,
                                                              1,
                                                              {'filter': f'duration:[{duration_min_sec} TO {duration_max_sec}]'})
@@ -74,10 +74,14 @@ class SegmentsToTimeline():
     def fast_TTS(self, text, output_file):
         if self.show_tts is None:
             self.show_tts = showTTS.ShowTextToSpeech()
-        #filter out any text in brackets
+        #filter out any text in brackets, parantheses
         text_filtered = re.sub(r'\[.*?\]', '', text)
+        text_filtered = re.sub(r'\(.*?\)', '', text_filtered)
+        #remove any quotes (single or double)
+        text_filtered = text_filtered.replace('"', '')
+        
         if text != text_filtered:
-            logger.info(f"Filtered out text in brackets. Original: {text}. Filtered: {text_filtered}")
+            logger.info(f"Filtered out text. Original: {text}. Filtered: {text_filtered}")
         if len(text_filtered.strip()) == 0:
             logger.info(f"Text is empty after filtering. Skipping TTS.")
             return None
@@ -124,17 +128,23 @@ class SegmentsToTimeline():
         return res
 
     def get_transition_map_entry(self, segment_transition_map, to_type):
-        to_type = to_type.lower()
-        logger.info(f"Getting transition map entry for map {segment_transition_map} and type {to_type}")
-        from_type = self.timeline.get_last_type()
-        if from_type:
-            from_type = from_type.lower()
-        logger.info(f"Last type was {from_type}")
-        if from_type in segment_transition_map:
-            logger.info(f"Found from_type {from_type} in transition map")
-            if to_type in segment_transition_map[from_type]:
-                logger.info(f"Found to_type {to_type} in transition map with value {segment_transition_map[from_type][to_type]}")
-                return segment_transition_map[from_type][to_type]
+
+        if segment_transition_map is not None:
+            to_type = to_type.lower()
+            logger.info(f"Getting transition map entry for map {segment_transition_map} and type {to_type}")
+            from_type = self.timeline.get_last_type()
+            if from_type:
+                from_type = from_type.lower()
+            if to_type:
+                to_type = to_type.lower()
+            logger.info(f"Last type was {from_type}")
+            f = segment_transition_map.get(from_type, None) or segment_transition_map.get('any', None)
+            if f is not None:
+                logger.info(f"Found from_type {f} in transition map")
+                t = f.get(to_type, None) or f.get('any', None)
+                if t is not None:
+                    logger.info(f"Found to_type {t} in transition map")
+                    return t
         return {}
 
     def get_data(self, type_key, value_key):
@@ -152,9 +162,11 @@ class SegmentsToTimeline():
         output_folder = self.global_results['output_folder']
         type_key = self.params.get('segment_type_key', 'speaker')
         value_key = self.params.get('segment_value_key', 'dialog')
+        single_background = self.params.get('single_background', False)
         segment_type_map = self.params.get('segment_type_map', {})
-        segment_transition_map = self.params.get('segment_transition_map', [])
+        segment_transition_map = self.params.get('segment_transition_map', {})
 
+        background_seen = False
         for i, entry in enumerate(self.get_data(type_key, value_key)):
             filename_prefix = f"{self.plugin_instance_name}_{i:03d}"
             filename = filename_prefix + ".wav"
@@ -174,6 +186,15 @@ class SegmentsToTimeline():
             function_name = segment_type_map[segment_type].get('segment_type')
             function_arguments = segment_type_map[segment_type].get(
                 'arguments', {})
+            
+            # only allow one background music segment, if enabled
+            background_music = segment_type_map[segment_type].get('background_music', False)
+            if background_music and single_background and background_seen:
+                logger.info(
+                    f"Skipping background music segment because single_background is enabled and background_seen is True.")
+                continue
+            else:
+                background_seen = True
 
             # Call the specified function
             logger.info(
@@ -230,7 +251,6 @@ class SegmentsToTimeline():
                 logger.info(f"Generated applause")
 
             # append the entry to the timeline
-            background_music = segment_type_map[segment_type].get('background_music', False)
             afp_kwargs = self.get_transition_map_entry(
                 segment_transition_map, entry[type_key])
             logger.info(f"Adding {entry[type_key]} to timeline as label {audioTimeline.SegmentLabel.BACKGROUND if background_music else audioTimeline.SegmentLabel.FOREGROUND} and args {afp_kwargs}")

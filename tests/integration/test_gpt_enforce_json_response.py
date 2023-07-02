@@ -45,7 +45,7 @@ def test_enforce_json_response(chat_app, enforce_json_prompt_template, enforce_j
     json_prompt = enforce_json_prompt_template.format(title, description, channel_title)
     prompt = json_prompt + json.dumps(enforce_json_schema)
     print(prompt)
-    response = chat_app.enforce_json_response(prompt, enforce_json_schema)
+    response = chat_app.enforce_json_response(prompt, enforce_json_schema, log_prompt=True, tries=5)
     print(response)
     #ingore case in response
     asset = response["answer"].lower() == expected_answer.lower()

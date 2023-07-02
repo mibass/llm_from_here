@@ -53,3 +53,26 @@ def test_is_production_prefix(monkeypatch):
     # Test when is_production() returns False and LLMFH_ENV is not set
     monkeypatch.delenv('LLMFH_ENV', raising=False)
     assert common.is_production_prefix() == 'dev_'
+
+@pytest.fixture
+def nested_dict():
+    return {
+        'a': {
+            'b': [
+                {'c': 123},
+                {'c': 456},
+                {'c': 789}
+            ]
+        }
+    }
+
+def test_get_nested_value(nested_dict):
+    assert common.get_nested_value(nested_dict, 'a.b.0.c') == 123
+    assert common.get_nested_value(nested_dict, 'a.b.1.c') == 456
+    assert common.get_nested_value(nested_dict, 'a.b.2.c') == 789
+    assert common.get_nested_value(nested_dict, 'a.b.3.c', default='Not found') == 'Not found'
+    assert common.get_nested_value(nested_dict, 'a.b.0', default='Not found') == {'c': 123}
+    assert common.get_nested_value(nested_dict, 'a.b.0.x', default='Not found') == 'Not found'
+    assert common.get_nested_value(nested_dict, 'a.x.y', default='Not found') == 'Not found'
+    assert common.get_nested_value(nested_dict, 'x.y.z', default='Not found') == 'Not found'
+

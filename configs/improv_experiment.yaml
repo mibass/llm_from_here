@@ -1,0 +1,127 @@
+global_params:
+
+plugins:
+  - name: improv
+    plugin: promptToSegment
+    class: PromptToSegment
+    cache: True
+    retries: 5
+    params:
+      system_message: >
+        You are a writer of improv comedy scene scripts adhering to the following guidelines:
+
+        Adopt a "king form" structure: Align character names on the left side of the page and their corresponding dialogues on the right side. This layout facilitates actors' comprehension and recall of their lines.
+
+        Place characters in current-day environments: Situate your script in a contemporary setting to connect with a wide-ranging audience. Contemporary settings might include city apartments, bustling cafes, or innovative tech startups.
+
+        Create a character with specialized or scholarly interests: One character should have a niche or intellectual hobby or passion that they reference frequently. This can become a recurring humorous element throughout the script.
+
+        Embed sound effects within the dialogue: Sound effects can enrich the comedy and ambiance of the scene. These should be denoted within brackets and inserted directly into the dialogue at the precise moments they are to occur. This guides the sound engineer on timing the effects perfectly with the spoken lines. The sound effect names should be one or two words that are easily searchable in a sound effect library.
+
+        Foster humorous exchanges between characters, utilizing mature language: The characters should engage in light-hearted and amusing banter. The judicious use of adult language can intensify the comedic effect but should not be overdone.
+
+        Follow the principles of improv: These include "Yes, And," active listening, mutual agreement, detailed specificity, profound characterization, cooperative interaction, and capitalizing on mistakes. These principles promote a cooperative and spontaneous creative process.
+
+        Avoid concluding the scene prematurely: Ensure your script is composed in a way that it can progress indefinitely until a particular cue or instruction is given to bring it to an end.
+
+        Keep in mind to avoid asking questions or addressing the user directly within the script. Your goal is to create a flowing, immersive comedic experience that engages and entertains the audience.
+
+        This will be an audio format, so you will not need to include any stage directions or descriptions of the characters' actions. The actors will be able to convey these through their voices and sound effects. Do not include any stage direction, title, character list, or setting. The only valid lines are character names with dialogues, sound effects, and background sounds.
+      prompts:
+        - prompt: >
+            Refine your creative process for an improv scene with these guidelines:
+
+            Select a suitable environment: Choose a setting that will serve as the stage for your improv scene, taking into account how it may influence the dynamics of the performance.
+
+            Identify appropriate sound effects or background sounds: Depending on the environment, pinpoint the type of sound effects or background melodies that would enhance the atmosphere of the scene. At the beginning indicate a background, ambient sound effect that will be playing throughout the scene and indicate it with brackets, e.g. [BACKGROUND sound effect name]. The sound names should be one or two words that are easily searchable in a sound effect library.
+
+            Determine character names: Create unique names for your characters that align with their personality or role in the scene.
+
+            Devise a compelling scenario: Establish the premise or situation your characters will be navigating in the scene.
+
+            Once the foundational elements of the scene are ready, hold off on developing the scene. Instead, take the time to list and understand the 10 guiding principles of long-form improv and how they will be applied in your scene.
+        - prompt: >
+            Proceed with the creation of your improv scene by adhering to these instructions:
+
+            Scene Development: Embark on writing the scene, integrating the environment, characters, and scenario you've already chosen.
+
+            Sound Effect Integration: Strategically intersperse sound effects throughout the scene. These should be indicated by enclosing the descriptive name of the sound effect within brackets. The sound names should be one or two words that are easily searchable in a sound effect library.
+
+            Sound Effect Descriptions: Ensure that your sound effects are brief, concise, 1 to 3 word descriptions of searchable sound effect names. The names will be used to search in a sound effect library. Avoid including any character references within these descriptions. Sound effects that aren't background sounds should be placed in brackets, e.g. [SOUND EFFECT: Sound; duration=10], [SOUND EFFECT: bird; duration=10], [SOUND EFFECT: dog barking; duration=3].
+
+            Scene Continuation: Refrain from concluding the scene. Prepare to seamlessly extend the narrative in response to the upcoming prompt. Do not include any stage direction, title, character list, or setting. The only valid lines are character names with dialogues, sound effects, and background sounds.
+          accumulate: True
+        - prompt: >
+            Now continue the scene.
+            Do not end the scene. Expect to continue in the next prompt.
+            Do not include any stage direction, title, character list, or setting.
+            The only valid lines are character names with dialogues, sound effects, and background sounds.
+          repeat_until_length: 1200
+          accumulate: True
+        - prompt: >
+            Now end the scene.
+            Do not include any stage direction, title, character list, or setting.
+            The only valid lines are character names with dialogues, sound effects, and background sounds.
+          accumulate: True
+      filter_character_names:
+        - "*env*"
+        - "*name*"
+        - "*sound*"
+        - "*effect*"
+        - "*background*"
+        - "*scene*"
+        - "*setting*"
+        - "*dialog*"
+      validate:
+        required_key_values:
+          - key: speaker
+            values:
+              - "character"
+              - "sound effect"
+
+
+
+  - name: improv_audio
+    plugin: segmentsToTimeline
+    class: SegmentsToTimeline
+    cache: True
+    cb: 20
+    params:
+      segments_object: improv_segments
+      segment_type_key: speaker
+      segment_value_key: dialog
+      background_music_gain: -10
+      segment_type_map:
+        default:
+          segment_type: fast_TTS
+        character 1:
+          segment_type: fast_TTS
+        character 2:
+          segment_type: fast_TTS
+        sound effect:
+          segment_type: music_generator_freesound
+          arguments:
+            duration_min_sec: 1
+            duration_max_sec: 60
+        background:
+          segment_type: music_generator_freesound
+          background_music: True
+          arguments:
+            duration_min_sec: 30
+            duration_max_sec: 200
+      segment_transition_map:
+        sound effect:
+          any:
+            overlay_percentage: 100
+      #   chris thile:
+      #     audience:
+      #       overlay_duration: 1
+      #       gain: -5
+      #       gain_match: True
+      #       fade_out: 500
+
+  - name: audio_render
+    plugin: audioTimeline
+    class: AudioTimeline
+    params:
+      timeline_variable: improv_audio_timeline
