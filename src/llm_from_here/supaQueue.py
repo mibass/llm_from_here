@@ -110,3 +110,18 @@ class SupaQueue:
         except Exception as e:
             logger.error(f"Failed to finalize queue, error: {e}")
 
+    def __getstate__(self):
+        return {
+            'queue_name': self.queue_name,
+            'case_sensitive': self.case_sensitive
+        }
+
+    def __setstate__(self, state):
+        self.queue_name = state['queue_name']
+        self.case_sensitive = state['case_sensitive']
+        SUPASET_URL = os.environ.get('SUPASET_URL')
+        SUPASET_KEY = os.environ.get('SUPASET_KEY')
+
+        # Re-create the Supabase client.
+        self.client = create_client(SUPASET_URL, SUPASET_KEY)
+

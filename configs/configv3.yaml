@@ -4,7 +4,7 @@ plugins:
   - name: guest_selection
     plugin: guestSelection
     class: GuestSelection
-    cache: False
+    cache: True
     params:
       !include includes/guest_selection.yml
 
@@ -264,12 +264,14 @@ plugins:
   - name: audio_render
     plugin: audioTimeline
     class: AudioTimeline
+    cache: True
     params:
       timeline_variable: outro_audio_timeline
 
   - name: final_audio
     plugin: stitchAudio
     class: StitchAudio
+    cache: True
     params:
       name: final_audio
       output_format: mp3
@@ -279,6 +281,7 @@ plugins:
   - name: lfh_rss
     plugin: podcastManager
     class: PodcastManager
+    cache: True
     params:
       podcast_title: LLM From Here - Episode {{ episode_number }}
       final_guests_list_variable: intro_guests
@@ -292,12 +295,13 @@ plugins:
         https://github.com/mibass/llm_from_here
       podcast_description_character_limit: 500
       podcast_feed_url: https://feed.podbean.com/llmfromhere/feed.xml
-      podcast_file_name_final_template: llm_from_here_{{ gen_date.strftime('%Y%m%d') }}_episode_{{ episode_number }}.mp3
+      podcast_file_name_final_template: llm_from_here_{{ gen_date.strftime('%Y%m%d%H%M%S') }}_episode_{{ episode_number }}.mp3
 
 
   - name: lfh_podbean
     plugin: podbeanManager
     class: PodbeanManager
+    cache: True
     only_in_prod: True
     params:
       file_path_variable: lfh_rss_podcast_file_path
@@ -306,3 +310,10 @@ plugins:
       title_variable: lfh_rss_podcast_title
       max_episodes: 3
       
+  - name: supabase_upload
+    plugin: supabaseBucketManager
+    class: SupabaseBucketManager
+    params:
+      file_parameter: lfh_rss_podcast_file_path
+      bucket_name: llmfh
+      truncate_size_mb: 50

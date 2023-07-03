@@ -29,7 +29,13 @@ global_results = {}
 cache_dir = appdirs.user_cache_dir(appname=os.path.basename(__file__))
 if not os.path.exists(cache_dir):
     os.makedirs(cache_dir)
-plugin_cache = PickleDict(os.path.join(cache_dir , 'cache.pickle'), autocommit=True)
+try:
+    plugin_cache = PickleDict(os.path.join(cache_dir , 'cache.pickle'), autocommit=True)
+except Exception as e:
+    logger.exception(f"Exception while creating plugin cache: {e}")
+    logger.info("Purging cache and retrying.")
+    os.remove(os.path.join(cache_dir , 'cache.pickle'))
+    plugin_cache = PickleDict(os.path.join(cache_dir , 'cache.pickle'), autocommit=True)
 
 def execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_name, retries=1):
     retry_count = 0

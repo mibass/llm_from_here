@@ -12,6 +12,8 @@ class PickleDict:
                 loaded_data = pickle.load(file)
         except FileNotFoundError:
             loaded_data = {}
+        except EOFError:
+            loaded_data = {}
 
         return loaded_data
 
