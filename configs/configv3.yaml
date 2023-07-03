@@ -79,12 +79,11 @@ plugins:
     plugin: segmentsToTimeline
     class: SegmentsToTimeline
     cache: True
-    cb: 19
+    cb: 22
     params:
       segments_object: intro_intro
       segment_type_key: speaker
       segment_value_key: dialog
-      background_music_gain: -10
       single_background: True
       segment_type_map:
         music:
@@ -101,6 +100,9 @@ plugins:
         intro_applause:
           segment_type: applause_generator
       segment_transition_map: &segment_transition_map_stage
+        any:
+          music:
+            gain: -10 #background music gain
         audience:
           chris thile:
             overlay_percentage: 25
@@ -236,7 +238,6 @@ plugins:
       segments_object: outro_segments
       segment_type_key: speaker
       segment_value_key: dialog
-      background_music_gain: -15
       single_background: True
       segment_type_map:
         background:
@@ -251,6 +252,9 @@ plugins:
         audience:
           segment_type: applause_generator
       segment_transition_map: 
+        any:
+          background:
+            gain: -10
         audience:
           any:
             overlay_percentage: 25

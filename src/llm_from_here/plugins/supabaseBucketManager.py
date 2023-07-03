@@ -62,7 +62,7 @@ class SupabaseBucketManager:
         return total_size
 
     def delete_old_files(self):
-        limit = 0.00001*(1 * 1024 * 1024 * 1024)  # 1GB
+        limit = 0.9*(1 * 1024 * 1024 * 1024)  # 1GB
         if self.get_bucket_size() > limit:
             logger.info('Bucket is almost full, deleting old files')
             files = self.supabase.storage.from_(self.bucket_name).list()
