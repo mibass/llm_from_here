@@ -36,7 +36,7 @@ jobs:
 
       - name: Run show
         run: |
-          python -m llm_from_here.showRunner configs/configv2.yaml 
+          python -m llm_from_here.showRunner configs/configv3.yaml 
         env:
             OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
             YT_API_KEY: ${{ secrets.YT_API_KEY }}
