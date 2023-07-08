@@ -2,7 +2,7 @@ name: Episode Release
 
 on:
   schedule:
-    - cron: '0 22 * * 4'  # Runs every Saturday at 10pm UTC
+    - cron: '0 20 * * 6'  # Runs every Saturday at 8pm UTC
     #- cron: '0 9 * * *'
   workflow_dispatch:
 
