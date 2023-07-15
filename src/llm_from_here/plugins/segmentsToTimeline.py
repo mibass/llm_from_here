@@ -144,7 +144,7 @@ class SegmentsToTimeline:
         return res
 
     def get_transition_map_entry(self, segment_transition_map, to_type):
-        if segment_transition_map is not None:
+        if segment_transition_map is not None and len(segment_transition_map) > 0:
             to_type = to_type.lower()
             logger.info(
                 f"Getting transition map entry for map {segment_transition_map} and type {to_type}"
@@ -155,15 +155,33 @@ class SegmentsToTimeline:
             if to_type:
                 to_type = to_type.lower()
             logger.info(f"Last type was {from_type}")
-            f = segment_transition_map.get(
-                from_type, None
-            ) or segment_transition_map.get("any", None)
-            if f is not None:
-                logger.info(f"Found from_type {f} in transition map")
-                t = f.get(to_type, None) or f.get("any", None)
-                if t is not None:
-                    logger.info(f"Found to_type {t} in transition map")
-                    return t
+
+            # segment_transition_map is a list of dicts, each dict is a transition map
+            # find the from_type in the transition map, if it exists
+            f = [
+                d.get(from_type if from_type in d else "any")
+                for d in segment_transition_map
+                if from_type in d or "any" in d
+            ]
+            if len(f) > 0:
+                logger.info(
+                    f"Found from_type {from_type} in transition map, with entries {f}"
+                )
+                # find the to_type in the transition map, if it exists
+                t = [
+                    d.get(to_type if to_type in d else "any")
+                    for d in f
+                    if to_type in d or "any" in d
+                ]
+                if len(t) > 0:
+                    logger.info(
+                        f"Found to_type {to_type} in transition map, with entries {t}"
+                    )
+                    if len(t) > 1:
+                        logger.warning(
+                            f"Found multiple to_type entries in transition map. Using first."
+                        )
+                    return t[0]
         return {}
 
     def get_data(self, type_key, value_key):

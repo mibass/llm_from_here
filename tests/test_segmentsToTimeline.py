@@ -27,12 +27,12 @@ yaml_string = """
         intro_applause:
           segment_type: applause_generator
       segment_transition_map:
-        audience:
-          music:
-            overlay_percentage: 25
-        music:
-          audience:
-            overlay_duration: 1
+        - audience:
+            music:
+              overlay_percentage: 25
+        - music:
+            audience:
+              overlay_duration: 1
 """
 
 

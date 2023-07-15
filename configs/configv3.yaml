@@ -100,20 +100,18 @@ plugins:
         intro_applause:
           segment_type: applause_generator
       segment_transition_map: &segment_transition_map_stage
-        any:
-          music:
-            gain: -10 #background music gain
-        audience:
-          chris thile:
-            overlay_percentage: 25
-        chris thile:
-          audience:
-            overlay_duration: 1
-            gain: -5
-            gain_match: True
-            fade_out: 500
-
-
+        - any:
+            music:
+              gain: -15 #background music gain
+        - audience:
+            chris thile:
+              overlay_percentage: 25
+        - chris thile:
+            audience:
+              overlay_duration: 1
+              gain: -5
+              gain_match: True
+              fade_out: 500
 
 
   - name: guests_audio
@@ -232,7 +230,7 @@ plugins:
     plugin: segmentsToTimeline
     class: SegmentsToTimeline
     cache: True
-    cb: 23
+    cb: 27
     params:
       timeline_variable: instrumental_timeline
       segments_object: outro_segments
@@ -252,23 +250,24 @@ plugins:
         audience:
           segment_type: applause_generator
       segment_transition_map: 
-        any:
-          background:
-            gain: -10
-        audience:
-          any:
-            overlay_percentage: 25
-        any:
-          audience:
-            overlay_duration: 1
-            gain: -5
-            gain_match: True
-            fade_out: 500
+        - any:
+            background:
+              gain: -15 #background music gain
+        - audience:
+            any:
+              overlay_percentage: 25
+        - any:
+            audience:
+              overlay_duration: 1
+              gain: -5
+              gain_match: True
+              fade_out: 500
 
   - name: audio_render
     plugin: audioTimeline
     class: AudioTimeline
     cache: True
+    cb: 1
     params:
       timeline_variable: outro_audio_timeline
 

@@ -89,7 +89,7 @@ class YtFetch():
         output_file = output_file.replace(".wav", "")
 
         ydl_opts = {
-            'format': 'bestaudio/best',
+            'format': 'bestaudio',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'wav',
@@ -97,20 +97,33 @@ class YtFetch():
             }],
             'outtmpl': output_file,
             'nocheckcertificate': True, 
-            "quiet": True,
+            'quiet': True,
             'noprogress': True,
+            'postprocessor_args': ['-ac', '2'], #force 2-channels
             # 'verbose': True
         }
         if max_duration:
             logger.info(f"Setting max duration to {max_duration}")
-            def download_ranges_callback(info_dict, ydl):
-                return [ {'start_time': 0, 'end_time': max_duration, 'title': 'Section 1', 'index': 1}]
-            ydl_opts['download_ranges'] = download_ranges_callback
+            #def download_ranges_callback(info_dict, ydl):
+            #    return [ {'start_time': 0, 'end_time': max_duration, 'title': 'Section 1', 'index': 1}]
+            #ydl_opts['download_ranges'] = download_ranges_callback
+            ydl_opts['postprocessor_args'].extend(['-t', str(max_duration)])
+            
 
         
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
-        time.sleep(5)
+        
+        #confirm file exists and is not empty
+        if not os.path.exists(output_file + ".wav"):
+            raise Exception(f"File {output_file + '.wav'} does not exist")
+        
+        for i in range(5):
+            if os.path.getsize(output_file + ".wav") == 0:
+                time.sleep(i)
+        if os.path.getsize(output_file + ".wav") == 0:
+            raise Exception(f"File {output_file + '.wav'} is empty")
+            
 
     def search_and_download_audio(self, query, output_file=None):
         video = self.search_video(query)

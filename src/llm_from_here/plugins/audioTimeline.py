@@ -184,7 +184,7 @@ class AudioTimeline:
 
         #process audio
         audio = self._trim_leading_silence(audio)
-        if last_entry and gain_match:
+        if last_entry and gain_match and label == SegmentLabel.FOREGROUND:
             audio = match_target_amplitude(audio, target_dBFS=last_entry['audio'].dBFS)
         logger.info(f"Gain is {gain}")
         audio = self._apply_gain(audio, gain)
@@ -291,6 +291,7 @@ class AudioTimeline:
         """
         Loop audio if it is shorter than the duration.
         """
+        prior_len = len(audio)
         if duration:
             if len(audio) < duration:
                 num_loops = duration // len(audio)
@@ -299,7 +300,9 @@ class AudioTimeline:
             
             if trim:
                 audio = audio[:duration]
-            
+        
+        if len(audio) != prior_len:
+            logger.info(f"Trimmed/looped audio from {prior_len} to {len(audio)}")
         return audio
     
     def merge_segment(self, audio, start_time, target_audio):
@@ -330,9 +333,10 @@ class AudioTimeline:
             for entry in self.timeline:
                 audio = entry['audio']
                 #extend audio to meet end time, and trim, if necessary
+                logger.info(f"Rendering audio name {entry['name']} with duration {len(audio)}")
                 audio = self.loop_audio(audio, 
                                         duration=entry['end_time'] - entry['start_time'])
-                logger.info(f"Audio duration: {len(audio)} after looping")
+                
                 
                 if entry['label'] == SegmentLabel.FOREGROUND:
                     foreground_audio=self.merge_segment(audio, 
@@ -348,7 +352,7 @@ class AudioTimeline:
             logger.info(f"Foreground audio duration: {len(foreground_audio)} ")
             logger.info(f"Background audio duration: {len(background_audio)} ")
             if len(background_audio) > 0:
-                background_audio = self._process_background_audio(background_audio, foreground_audio)
+                #background_audio = self._process_background_audio(background_audio, foreground_audio)
                 if len(foreground_audio) > len(background_audio):
                     rendered_audio = foreground_audio.overlay(
                         background_audio)
