@@ -64,7 +64,7 @@ class PromptToSegment:
         return None
         
     
-    def convert_script_to_segments(self):
+    def convert_script_to_segments(self, filter_empty_dialog=True):
         """
         Convert script to segments.
         Take audio cues from the script and convert them to "audio" speaker segments.
@@ -111,6 +111,9 @@ class PromptToSegment:
                 self.segments.append(segment)
             else:
                 logger.warning(f"Ignoring line; Could not parse line: {line}")
+
+        if filter_empty_dialog:
+            self.segments = [segment for segment in self.segments if segment['dialog'].strip() != ""]
                 
     def split_dialog(self, dialog):
         """

@@ -20,7 +20,7 @@ pip install .
 pytest tests/test*.py
 
 # # deactivate the venv
-# deactivate
+deactivate
 
 # # optionally, remove the venv
-# rm -rf lfh_test_env
+rm -rf lfh_test_env

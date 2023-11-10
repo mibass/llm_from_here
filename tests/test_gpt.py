@@ -1,27 +1,31 @@
 import unittest
 import jsonschema
 from unittest.mock import patch, MagicMock
-from llm_from_here.plugins.gpt import ChatApp, openai
+from llm_from_here.plugins.gpt import ChatApp
 import json
+import openai
 
 class TestChatApp(unittest.TestCase):
-    def setUp(self):
+    @patch('llm_from_here.plugins.gpt.openai.OpenAI')
+    def setUp(self, mock_openai):
+        # Create a mock response object with the necessary attributes
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content="Test response"))]
+
+        # Set up the mock OpenAI client
+        self.mock_client = mock_openai.return_value
+        self.mock_client.chat.completions.create.return_value = mock_response
+
         self.system_message = "Welcome"
         self.chat_app = ChatApp(self.system_message)
-        
-    @patch('openai.ChatCompletion.create')
-    def test_chat(self, mock_create):
-        # Set up the mock
-        mock_create.return_value = {
-            "choices": [
-                {"message": {"content": "Test response"}}
-            ]
-        }
+
+
+    def test_chat(self):
         # Test the chat method
         response = self.chat_app.chat("Test message")
 
         # Check the API was called with the right arguments
-        mock_create.assert_called_once_with(
+        self.mock_client.chat.completions.create.assert_called_once_with(
             model=ChatApp.MODEL_NAME,
             messages=[
                 {"role": "system", "content": self.system_message},
@@ -32,30 +36,16 @@ class TestChatApp(unittest.TestCase):
         # Check the response was as expected
         self.assertEqual(response, "Test response")
         
-    @patch('openai.ChatCompletion.create')
-    def test_chat_appends_responses(self, mock_create):
-        # Set up the mock
-        mock_create.return_value = {
-            "choices": [
-                {"message": {"content": "Test response"}}
-            ]
-        }
+    def test_chat_appends_responses(self):
 
         # Call the chat method
         self.chat_app.chat("Test message")
 
         # Check the responses list was appended
-        self.assertEqual(self.chat_app.responses[0]["choices"][0]["message"]["content"], "Test response")
+        response = self.chat_app.responses[0]
+        self.assertEqual(response.choices[0].message.content, "Test response")
 
-    @patch('openai.ChatCompletion.create')
-    def test_chat_appends_messages(self, mock_create):
-        # Set up the mock
-        mock_create.return_value = {
-            "choices": [
-                {"message": {"content": "Test response"}}
-            ]
-        }
-
+    def test_chat_appends_messages(self):
         # Call the chat method
         self.chat_app.chat("Test message")
 

@@ -36,7 +36,7 @@ def test_enforce_list_response(chat_app, prompt):
 @pytest.mark.parametrize("prompt", prompts)
 def test_enforce_list_response_consensus(chat_app, prompt):
     print(prompt)
-    n=5
+    n=50
     response = chat_app.enforce_list_response_consensus(
         prompt, num_entries=n, log_prompt=True, tries=5
     )

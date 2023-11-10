@@ -82,7 +82,7 @@ class SegmentsToTimeline:
         shutil.move(self.freesound_fetch.temp_files[-1], output_file)
         return True
 
-    def fast_TTS(self, text, output_file):
+    def tts(self, text, output_file, fast_tts=True):
         if self.show_tts is None:
             self.show_tts = showTTS.ShowTextToSpeech()
         # filter out any text in brackets, parantheses
@@ -99,13 +99,16 @@ class SegmentsToTimeline:
             logger.info(f"Text is empty after filtering. Skipping TTS.")
             return None
         else:
-            self.show_tts.speak(text_filtered, output_file, fast=True)
+            self.show_tts.speak(text_filtered, output_file, fast=fast_tts)
 
         return {}
 
-    # def slow_TTS(self, text, output_file):
-    #     self.show_tts.speak(text, output_file, fast=False)
+    def fast_TTS(self, text, output_file):
+        return self.tts(text, output_file, fast_tts=True)
 
+    def slow_TTS(self, text, output_file):
+        return self.tts(text, output_file, fast_tts=False)
+        
     def youtube_search(self, text, output_file, **kwargs):
         if self.yt_fetch is None:
             self.yt_fetch = ytfetch.YtFetch(**kwargs)
@@ -246,6 +249,7 @@ class SegmentsToTimeline:
             )
 
             if res is None:
+                logger.info(f"No audio generated for type: {entry[type_key]}")
                 continue  # None indicates no audio was generated
 
             title = (
@@ -271,7 +275,9 @@ class SegmentsToTimeline:
                         )
                     else:
                         intro_text = "Ladies and gentlemen... {intro_text}"
-                    self.fast_TTS(intro_text, intro_file_path)
+                    
+                    fast_tts = segment_type_map[segment_type].get("fast_tts", True)
+                    self.tts(intro_text, intro_file_path, fast_tts=fast_tts)
 
                     # get transition map entry, if it exists
                     afp_kwargs = self.get_transition_map_entry(

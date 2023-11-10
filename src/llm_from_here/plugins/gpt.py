@@ -11,6 +11,8 @@ from collections import Counter
 # Setup basic logging
 logger = logging.getLogger(__name__)
 
+import dotenv
+dotenv.load_dotenv()
 
 def extract_json_response(response):
     """
@@ -37,19 +39,31 @@ class ChatApp:
             system_message (str): The system message to start the conversation.
         """
         # Setting the API key to use the OpenAI API
-        openai.api_key = os.getenv("OPENAI_API_KEY")
         self.messages = [
             {"role": "system", "content": system_message},
         ]
         self.system_message = system_message
         self.responses = []
+        self.client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # Remove the unpickleable entries.
+        state.pop('client', None)
+        return state
+
+    def __setstate__(self, state):
+        # Restore instance attributes.
+        self.__dict__.update(state)
+        # Recreate the client or set it to None, depending on your needs.
+        self.client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     def chat(self, message, strip_quotes=False, tries=5, delay=2, backoff=2):
         @retry(
             (
-                openai.error.RateLimitError,
-                openai.error.AuthenticationError,
-                openai.error.APIError,
+                openai.RateLimitError,
+                openai.AuthenticationError,
+                openai.APIError,
             ),
             tries=tries,
             delay=delay,
@@ -66,7 +80,7 @@ class ChatApp:
             """
             messages = self.messages + [{"role": "user", "content": message}]
             try:
-                response = openai.ChatCompletion.create(
+                response = self.client.chat.completions.create(
                     model=self.MODEL_NAME, messages=messages
                 )
             except Exception as e:
@@ -76,12 +90,12 @@ class ChatApp:
             self.messages.append(
                 {
                     "role": "assistant",
-                    "content": response["choices"][0]["message"]["content"],
+                    "content": response.choices[0].message.content,
                 }
             )
             self.responses.append(response)
 
-            response_text = response["choices"][0]["message"]["content"]
+            response_text = response.choices[0].message.content
             return response_text.strip('"') if strip_quotes else response_text
 
         return chat(self, message, strip_quotes=strip_quotes)
@@ -197,8 +211,8 @@ class ChatApp:
             if log_prompt:
                 logger.info(f"Chat app response: {response}")
             try:
-                # Extract the response between triple single quotes
-                match = re.search(r"'''(.*?)'''", response, re.DOTALL)
+                # Extract the response between triple single quotes, or backticks
+                match = re.search(r"(?:(```)|(?:'''))(.*?)(?:(```)|(?:'''))", response, re.DOTALL)
                 if match:
                     extracted_response = match.group(1)
 
@@ -243,7 +257,7 @@ class ChatApp:
         tries=5,
         delay=2,
         backoff=2,
-        reset_conversation=True
+        reset_conversation=True,
     ):
         """
         Repeatedly calls enforce_list_response, stores the results,
@@ -263,12 +277,12 @@ class ChatApp:
         while True:
             if reset_conversation:
                 self.reset_conversation()
-                
+
             response = self.enforce_list_response(
                 message, num_entries, list_format, log_prompt, tries, delay, backoff
             )
             all_responses.extend(response)
-            
+
             response_counts = Counter(all_responses)
             consensus_responses = [
                 item for item, count in response_counts.items() if count >= 2
@@ -276,7 +290,7 @@ class ChatApp:
 
             if len(consensus_responses) >= num_entries:
                 break
-            
+
         if reset_conversation:
             self.reset_conversation()
 
@@ -285,3 +299,17 @@ class ChatApp:
             consensus_responses, key=lambda x: -response_counts[x]
         )
         return sorted_responses[:num_entries]
+
+
+if __name__ == "__main__":
+    import sys
+
+    # get command line args
+    message = sys.argv[1]
+
+    chat_app = ChatApp()
+
+    # Call the chat method
+    response = chat_app.chat(message)
+
+    print(response)
