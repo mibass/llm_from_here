@@ -47,9 +47,9 @@ class ChatApp:
     def chat(self, message, strip_quotes=False, tries=5, delay=2, backoff=2):
         @retry(
             (
-                openai.RateLimitError,
-                openai.AuthenticationError,
-                openai.APIError,
+                openai.error.RateLimitError,
+                openai.error.AuthenticationError,
+                openai.error.APIError,
             ),
             tries=tries,
             delay=delay,
