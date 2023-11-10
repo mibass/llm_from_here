@@ -18,7 +18,7 @@ setup(
         'pydub',
         'google_auth_oauthlib',
         'google-api-python-client',
-        'openai',
+        'openai<1.1',
         'jsonschema',
         'sqlitedict',
         'isodate',
