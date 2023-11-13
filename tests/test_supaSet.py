@@ -28,9 +28,9 @@ class TestSupaSet(unittest.TestCase):
         self.supaset._table().update().eq().eq().execute.assert_called_once()  # Check if the mock method was called
 
     def test_cleanup_incomplete_sessions(self):
-        self.supaset._table().delete().eq().eq().execute = MagicMock()  # Mock the chained methods
+        self.supaset._table().delete().eq().eq().neq().execute = MagicMock()  # Mock the chained methods
         self.supaset._cleanup_incomplete_sessions()
-        self.supaset._table().delete().eq().eq().execute.assert_called_once()  # Check if the mock method was called
+        self.supaset._table().delete().eq().eq().neq().execute.assert_called_once()  # Check if the mock method was called
 
     def test_elements(self):
         self.supaset._table().select().eq().execute = MagicMock(return_value=MagicMock(data=[{'value': 'test_value'}]))  # Mock the chained methods and their return value

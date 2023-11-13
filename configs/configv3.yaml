@@ -215,6 +215,7 @@ plugins:
           segment_type: youtube_playlist
           intro_name: True
           intro_prompt: *intro_prompt
+          fast_tts: False
           arguments:
             playlist_id: PL8ufCCC-rPcv60d6yR7Sac3nRctr8hxEG
 

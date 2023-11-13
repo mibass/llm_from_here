@@ -56,7 +56,7 @@ class SupabaseBucketManager:
 
     def get_bucket_size(self):
         files = self.supabase.storage.from_(self.bucket_name).list()
-        print(files)
+        #print(files)
         total_size = sum(file['metadata']['size'] for file in files)
         logger.info(f'Bucket size: {total_size}')
         return total_size

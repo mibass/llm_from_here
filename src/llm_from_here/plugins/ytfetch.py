@@ -28,8 +28,11 @@ class YtFetch():
         self.last_response = None
         supaset_name = f'{is_production_prefix()}ytfetch_video_ids_returned'
         self.video_ids_returned = SupaSet(supaset_name,
-                                          autoexpire = kwargs.get('video_ids_supaset_autoexpire_days', 90))
+                                          autoexpire = kwargs.get('video_ids_supaset_autoexpire_days', 180))
         
+    def finalize(self):
+        logger.info("Finalizing YtFetch")
+        self.video_ids_returned.complete_session()
     
     def search_video(self, query, orderby="relevance"):
         return self.search_videos(query, orderby=orderby, max_results=1)[0]

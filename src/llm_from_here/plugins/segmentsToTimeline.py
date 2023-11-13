@@ -109,9 +109,12 @@ class SegmentsToTimeline:
     def slow_TTS(self, text, output_file):
         return self.tts(text, output_file, fast_tts=False)
         
-    def youtube_search(self, text, output_file, **kwargs):
+    def init_ytfetch(self, **kwargs):
         if self.yt_fetch is None:
             self.yt_fetch = ytfetch.YtFetch(**kwargs)
+
+    def youtube_search(self, text, output_file, **kwargs):
+        self.init_ytfetch(**kwargs)
         additional_query_text = kwargs.get("additional_query_text", "")
 
         query = f"{text} {additional_query_text}"
@@ -135,8 +138,7 @@ class SegmentsToTimeline:
         playlist_id = kwargs.get("playlist_id")
         logger.info(f"Retreiving youtube playlist item with id: {playlist_id}")
 
-        if self.yt_fetch is None:
-            self.yt_fetch = ytfetch.YtFetch(**kwargs)
+        self.init_ytfetch(**kwargs)
 
         res = self.yt_fetch.download_random_video_from_playlist(
             playlist_id, output_file
@@ -336,3 +338,8 @@ class SegmentsToTimeline:
         self.timeline.set_end_times()
 
         return {"timeline": self.timeline}
+
+    def finalize(self):
+        logger.info(f"Finalizing {self.__class__.__name__}")
+        if self.yt_fetch is not None:
+            self.yt_fetch.finalize()

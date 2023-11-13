@@ -31,6 +31,9 @@ class IntroFromGuestlist:
         logger.info(f"Found guests: {self.guests}")
         guest_list = [x['guest_name'] for x in self.guests]
         
+        #dedupe this list
+        guest_list = list(set(guest_list))
+        
         #script
         script_prompt = params['script_prompt']
         script_prompt = Template(script_prompt).render(guests=', '.join(guest_list))

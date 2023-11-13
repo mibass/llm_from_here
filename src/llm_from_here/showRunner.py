@@ -48,7 +48,7 @@ def execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_
             plugin_instance = plugin_class(
                 plugin_params, global_results, plugin_instance_name)
             plugin_results = plugin_instance.execute()
-            return plugin_results
+            return plugin_results, plugin_instance
         except Exception as e:
             logger.exception(
                 f"Exception while executing plugin '{plugin_instance_name}': {e}")
@@ -135,7 +135,7 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
                 logger.critical(f"Module '{plugin_name}' not found.")
                 raise
 
-            plugin_results = execute_plugin(
+            plugin_results, plugin_instance = execute_plugin(
                 plugin_class, plugin_params, global_results, plugin_instance_name=name_key, retries=plugin_retries)
 
             logger.info(
@@ -153,15 +153,22 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
             
             # If the plugin has a finalize method, add it to the list of objects to be finalized
             if not from_cache and hasattr(value, 'finalize'):
+                logger.info(f"Adding {value} to to_be_finalized")
                 to_be_finalized.append(value)
             
         logger.info(f"Plugin '{plugin_name}' results: {prepended_results}")
+
+        # check if plugin_instance has a finalize method
+        if not from_cache and hasattr(plugin_instance, 'finalize'):
+            logger.info(f"Adding {plugin_instance} to to_be_finalized")
+            to_be_finalized.append(plugin_instance)
 
         # Merge prepended results into global results
         global_results.update(prepended_results)
         
     #finalize
     for obj in to_be_finalized:
+        logger.info(f"Finalizing object {obj}")
         obj.finalize()
 
 def get_last_run_count(show_name, outputs_dir):
