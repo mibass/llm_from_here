@@ -1,6 +1,6 @@
 import importlib
 import yaml
-import yaml_include
+import yamlinclude
 import os
 import logging
 from dotenv import load_dotenv
@@ -60,7 +60,7 @@ def execute_plugin(plugin_class, plugin_params, global_results, plugin_instance_
 
 def load_yaml(yaml_file):
     base_dir = os.path.dirname(yaml_file)
-    yaml_include.YamlIncludeConstructor.add_to_loader_class(loader_class=yaml.FullLoader, 
+    yamlinclude.YamlIncludeConstructor.add_to_loader_class(loader_class=yaml.FullLoader, 
                                                            base_dir=base_dir)
     with open(yaml_file) as file:
         data = yaml.load(file, Loader=yaml.FullLoader)
