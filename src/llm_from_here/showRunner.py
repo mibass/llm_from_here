@@ -1,6 +1,6 @@
 import importlib
 import yaml
-import yamlinclude
+import yaml_include
 import os
 import logging
 from dotenv import load_dotenv
