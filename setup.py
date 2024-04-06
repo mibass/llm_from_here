@@ -42,7 +42,7 @@ setup(
         'matplotlib',
         'pandas',
         'freesound-python @ git+https://github.com/MTG/freesound-python.git#egg=freesound',
-        'pyyaml-include<2',
+        'pyyaml-include',
         'pytest',
         'ytmusicapi'
     ],
