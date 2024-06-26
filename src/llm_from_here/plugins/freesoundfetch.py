@@ -3,6 +3,10 @@ from dotenv import load_dotenv
 import os
 import random
 import pathvalidate
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 load_dotenv()  # take environment variables from .env.
 
@@ -33,21 +37,28 @@ class FreeSoundFetch:
 
     def download_sample(self, sound):
         sanitized_filename = pathvalidate.sanitize_filename(sound.name)
-        temp_file_name = os.path.join(self.out_dir, f"{sanitized_filename}.wav")
+        temp_file_name = os.path.join(self.out_dir, f"{sanitized_filename}")
         sound.retrieve_preview(self.out_dir, name=temp_file_name)
-        self.temp_files.append(temp_file_name)
+        #the file names always have .mp3 appended to them
+        self.temp_files.append(temp_file_name + ".mp3")
 
     def search_and_download_top_samples(self, query, num_samples=1, filter_params=None):
+        #TODO: come up with a better way to clear the query of certain strings
+        clear_strings = ['[BACKGROUND']
+        for clear_string in clear_strings:
+            query = query.replace(clear_string, '')
         sorted_results = self.search_samples(query, filter_params)
         sounds = [sound for sound in sorted_results]
         random.shuffle(sounds)
         # Download the top samples
         i=0
         for sound in sounds:
+            logger.info(f"Downloading sample {i+1} of {num_samples}: {sound.name}")
             self.download_sample(sound)
             i+=1
             if i>=num_samples:
                 break
+        return i
 
     def execute(self):
         query = self.params.get('query')

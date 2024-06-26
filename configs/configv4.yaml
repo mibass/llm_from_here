@@ -1,0 +1,331 @@
+global_params:
+
+plugins:
+  - name: guest_selection
+    plugin: guestSelection
+    class: GuestSelection
+    cache: True
+    params:
+      !include includes/guest_selection.yml
+
+  - name: intro
+    plugin: introFromGuestlist
+    class: IntroFromGuestlist
+    cache: True
+    retries: 5
+    params:
+      guests_parameter: guest_selection_guests
+      system_message: >
+        You are Chris Thile, host of the variety show Live From Here.
+        You are very emotional and nostalgic and like to listen to music, podcasts, npr, and long-form improv comedy.
+        You love to make connections between guests and music and your own life.
+        Rules for responses:
+          - Do not explain answers when asked to generate a script, only respond with a script.
+          - Keep in the character of the show's host, Chris Thile, and do not break character.
+          - When asked to generate JSON, only respond with JSON.
+
+      script_prompt: >
+        Write a script for the intro to be read Verbatim by Chris Thile.  
+        Chris should announce these guests: {{ guests }}.
+        This intro segment should be about 5 minutes long, 600 to 800 words, and end with Chris announcing the guests.  
+        Applause breaks and duration should be added and denoted with [APPLAUSE duration x] where x is in seconds and could be between 3 and 6 seconds, for example:
+          [APPLAUSE 5 seconds]
+        A musical background will be played by Chris and the band underneath his introduction, this should be described and denoted in the script with [BACKGROUND MUSIC] and should occur only once at the beginning, and with one or more of the descriptors bluegrass, folk, country, rock, jazz, classical, post-rock. For example :
+          [BACKGROUND MUSIC: bluegrass]
+        Return only the script and say nothing else.
+
+      json_script_prompt: >
+        Now take that intro and format it into JSON. 
+        Each line of dialog should be a new object in the JSON array.
+        Background music should get its own cue in the array with a speaker name of Music and a dialog of [MUSIC <music_type>], for example [MUSIC bluegrass].
+        There should be only one music cue, and it should be first.
+        Applause breaks should get their own object in the array with a speaker name of Audience and a dialog of [APPLAUSE duration x], for example [APPLAUSE duration 10].
+        The only valid values for speaker are Music, Chris Thile, and Audience.
+        Choose only one music cue and make it the first speaker.
+        Return only the JSON and say nothing else.
+        Respond only with the following schema:
+
+      json_script_prompt_js:
+        type: array
+        items:
+          type: object
+          properties:
+            speaker:
+              type: string
+              pattern: '^(?i)(music|chris thile|audience)$'
+            dialog:
+              type: string
+              pattern: '^(?i)(\[music [a-z\-]+\]|\[applause duration [0-9]+\]|.+)$'
+          required:
+            - speaker
+            - dialog
+
+      extra_prompts:
+        # - name: story
+        #   prompt: > 
+        #     Now generate a story for Chris to tell. The story could be about anything but feel like it's about nothing and everything. The topic should seem fairly random and non-obvious. It should be told in the first-person. The story should be at least 5 paragraphs long and last no more than 5 minutes when read aloud. It should generate some emotion in the listener of joy, regret, nostalgia, and/or elation.
+        #     It should never begin with Once upon a time. Chris should never directly mention the emotions he is trying to evoke. Avoid stories where nothing actually happens. 
+        #     He should talk to someone, see something happen, and make something happen in each story. He should relay at least one short conversation he had.
+        #     Use a lot of contractions often and as many colloquialisms as possible.
+        #     You do not speak, just tell the story.
+        - name: outro
+          prompt: >
+            Now write an outro for Chris to read. 
+            It should be about 1 to 2 minutes long and should include a call to action for the audience to do something. 
+            It should be a single paragraph and should be written in the first person.
+            It should thank the guests.
+            Applause breaks and duration should be added and denoted with [APPLAUSE duration x] where x is in seconds and could be between 3 and 6 seconds, for example:
+              [APPLAUSE 5 seconds]
+            A musical background will be played by Chris and the band underneath his introduction, this should be described and denoted in the script with [BACKGROUND MUSIC] and should occur only once at the beginning, and with one or more of the descriptors bluegrass, folk, country, rock, jazz, classical, post-rock. For example :
+              [BACKGROUND MUSIC: bluegrass]
+              [BACKGROUND MUSIC: post-rock]
+
+   
+  - name: intro_audio
+    plugin: segmentsToTimeline
+    class: SegmentsToTimeline
+    cache: True
+    cb: 22
+    params:
+      segments_object: intro_intro
+      segment_type_key: speaker
+      segment_value_key: dialog
+      single_background: True
+      segment_type_map:
+        music:
+          segment_type: youtube_playlist
+          background_music: True
+          arguments:
+            playlist_id: PLE3cjj4L4BWgu8nQtMYbNrGdUA7mpbOKk
+        chris thile:
+          segment_type: slow_TTS
+        audience:
+          segment_type: applause_generator
+        intro_name:
+          segment_type: slow_TTS
+        intro_applause:
+          segment_type: applause_generator
+      segment_transition_map: &segment_transition_map_stage
+        - any:
+            music:
+              gain: -15 #background music gain
+        - audience:
+            chris thile:
+              overlay_percentage: 25
+        - chris thile:
+            audience:
+              overlay_duration: 1
+              gain: -5
+              gain_match: True
+              fade_out: 500
+
+
+  - name: guests_audio
+    plugin: segmentsToTimeline
+    class: SegmentsToTimeline
+    cache: True
+    cache_buster: 7
+    params:
+      timeline_variable: intro_audio_timeline
+      segments_object: intro_guests
+      segment_type_key: guest_category
+      segment_value_key: guest_name
+      segment_type_map:
+        default: &default
+          segment_type: youtube_search
+          intro_name: True
+          fast_tts: False
+          intro_applause: True
+          intro_prompt: &intro_prompt >
+            Given a youtube search query  and a title for a video found using it, formatted like "query:::title", come up with a one sentence introduction for a host to read before the video plays. An example is:
+            Cheryl Strayed (monologue|story|reading|"live from here"):::Interview Cheryl Strayed Reese Witherspoon WILD
+            and the generated introduction would look like:
+            "Ladies and gentleman, and interview with Cheryl Strayed and Reese Witherspoon about the movie Wild"
+            Only respond with the introduction and nothing else.
+            Now make an introduction for this one:
+          arguments:
+            additional_query_text: live"
+            duration_min_sec: 300
+            duration_max_sec: 660
+            video_ids_supaset_autoexpire_days: 90
+        music: 
+          <<: *default
+          segment_type: youtube_search
+          arguments:
+            additional_query_text: "live performance"
+            duration_search_filter: medium
+            duration_min_sec: 180
+            duration_max_sec: 600
+            use_music_search: True
+        comedy:
+          <<: *default
+          segment_type: youtube_search
+          arguments:
+            additional_query_text: ("stand up"|"live from here")
+            duration_search_filter: medium
+            duration_min_sec: 300
+            duration_max_sec: 660
+            description_filters:
+              - female
+        author: &author
+          <<: *default
+          arguments:
+            additional_query_text: (interview|monologue|story|reading|"live from here")
+            duration_search_filter: medium
+            duration_min_sec: 300
+            duration_max_sec: 660
+            llm_filter_prompt: &llm_filter_prompt >
+              Can you tell me if this video title represents a video that would be appropriate for a 
+              variety show that is meant to be uplifting and simulate nostalgic feelings? I want to 
+              avoid controversial, misogynistic, and political content. You should be more lenient
+              with channels from well known sources like NPR, PBS, and the BBC as well as late night
+              talk shows.
+              
+              Make your best guess attempt and respond only with yes or no.
+
+              The title is "{{ title }}" and the channel title is "{{ channel_title }}
+              and the description is:
+              ```
+               {{ description }}
+              ```
+
+              Respond only with the following schema:
+            llm_filter_js:
+              type: object
+              properties:
+                answer:
+                  type: string
+                  pattern: '^(?i)(yes|no)$'
+              required:
+                - answer
+        actor:
+          <<: *author
+        improv:
+          <<: *default
+          segment_type: youtube_search
+          arguments:
+            additional_query_text:  ("comedy bang bang"|"improv scene"|"improv4humans"|"Spontaneanation")
+            duration_search_filter: medium
+            duration_min_sec: 300
+            duration_max_sec: 900
+            use_music_search: True
+
+  - name: instrumental
+    plugin: segmentsToTimeline
+    class: SegmentsToTimeline
+    cache: True
+    cb: 17
+    params:
+      timeline_variable: guests_audio_timeline
+      segment_type_map:
+        music:
+          segment_type: youtube_playlist
+          intro_name: True
+          intro_prompt: *intro_prompt
+          fast_tts: False
+          arguments:
+            playlist_id: PL8ufCCC-rPcv60d6yR7Sac3nRctr8hxEG
+
+
+  - name: outro
+    plugin: promptToSegment
+    class: PromptToSegment
+    cache: True
+    params:
+      script_variable: intro_extra_prompt_responses.outro
+      is_dialog: True
+
+  - name: outro_audio
+    plugin: segmentsToTimeline
+    class: SegmentsToTimeline
+    cache: True
+    cb: 27
+    params:
+      timeline_variable: instrumental_timeline
+      segments_object: outro_segments
+      segment_type_key: speaker
+      segment_value_key: dialog
+      single_background: True
+      segment_type_map:
+        background:
+          segment_type: youtube_search
+          background_music: True
+          arguments:
+            additional_query_text: instrumental live
+            use_music_search: True
+            truncation_duration_sec: 600
+        default:
+          segment_type: slow_TTS
+        audience:
+          segment_type: applause_generator
+      segment_transition_map: 
+        - any:
+            background:
+              gain: -15 #background music gain
+        - audience:
+            any:
+              overlay_percentage: 25
+        - any:
+            audience:
+              overlay_duration: 1
+              gain: -5
+              gain_match: True
+              fade_out: 500
+
+  - name: audio_render
+    plugin: audioTimeline
+    class: AudioTimeline
+    cache: True
+    cb: 1
+    params:
+      timeline_variable: outro_audio_timeline
+
+  - name: final_audio
+    plugin: stitchAudio
+    class: StitchAudio
+    cache: True
+    params:
+      name: final_audio
+      output_format: mp3
+      segments_list: 
+        - audio_render_file_path
+
+  - name: lfh_rss
+    plugin: podcastManager
+    class: PodcastManager
+    cache: True
+    params:
+      podcast_title: LLM From Here - Episode {{ episode_number }}
+      final_guests_list_variable: intro_guests
+      final_guests_list_key: guest_name
+      source_file_name_variable: final_audio_stitched_audio_file
+      podcast_description_template: >
+        On tonight's episode of LLM From Here:
+        {% for guest in guests_audio_segments %}
+          {{ guest }}
+        {% endfor %}
+        https://github.com/mibass/llm_from_here
+      podcast_description_character_limit: 500
+      podcast_feed_url: https://feed.podbean.com/llmfromhere/feed.xml
+      podcast_file_name_final_template: llm_from_here_{{ gen_date.strftime('%Y%m%d%H%M%S') }}_episode_{{ episode_number }}.mp3
+
+
+  - name: lfh_podbean
+    plugin: podbeanManager
+    class: PodbeanManager
+    cache: True
+    only_in_prod: True
+    params:
+      file_path_variable: lfh_rss_podcast_file_path
+      episode_number_variable: lfh_rss_episode_number
+      description_variable: lfh_rss_podcast_description
+      title_variable: lfh_rss_podcast_title
+      max_episodes: 3
+      
+  - name: supabase_upload
+    plugin: supabaseBucketManager
+    class: SupabaseBucketManager
+    params:
+      file_parameter: lfh_rss_podcast_file_path
+      bucket_name: llmfh
+      truncate_size_mb: 50

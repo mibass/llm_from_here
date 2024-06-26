@@ -1,5 +1,5 @@
 from llm_from_here.supaQueue import SupaQueue
-import llm_from_here.plugins.gpt as gpt
+import llm_from_here.plugins.llm_factory as llm_factory
 from llm_from_here.common import is_production_prefix
 import os
 import numpy as np
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class GuestSelection:
     def __init__(self, params, global_results, plugin_instance_name, chat_app=None):
-        self.chat_app = chat_app or gpt.ChatApp()
+        self.chat_app = chat_app or llm_factory.get_llm_provider(params.get("system_message"))
         self.params = params
         self.global_results = global_results
         self.plugin_instance_name = plugin_instance_name

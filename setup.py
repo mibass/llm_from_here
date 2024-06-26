@@ -44,7 +44,8 @@ setup(
         'freesound-python @ git+https://github.com/MTG/freesound-python.git#egg=freesound',
         'pyyaml-include',
         'pytest',
-        'ytmusicapi'
+        'ytmusicapi',
+        'anthropic'
     ],
     python_requires=">=3.10"
 )

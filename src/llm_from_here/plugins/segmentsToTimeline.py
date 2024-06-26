@@ -23,6 +23,7 @@ class SegmentsToTimeline:
         self.chat_app_object = global_results.get(
             params.get("chat_app_object", "intro_chat_app"), None
         )
+
         self.global_results = global_results
         self.params = params
         self.plugin_instance_name = plugin_instance_name
@@ -32,6 +33,11 @@ class SegmentsToTimeline:
         self.timeline = global_results.get(
             timeline_variable, audioTimeline.AudioTimeline()
         )
+
+        #clear chat app to save tokens by default
+        if params.get("clear_chat_app", True) and self.chat_app_object:
+            self.chat_app_object.reset_conversation()
+
         if timeline_variable:
             logger.info(
                 f"Using existing timeline in {timeline_variable}. Timeline length: {self.timeline.get_last_end_time()}"
@@ -76,9 +82,12 @@ class SegmentsToTimeline:
         logger.info(
             f"Retreiving freesound music with query: {query}, duration: {duration_min_sec} to {duration_max_sec}"
         )
-        self.freesound_fetch.search_and_download_top_samples(
+        n_downloaded = self.freesound_fetch.search_and_download_top_samples(
             query, 1, {"filter": f"duration:[{duration_min_sec} TO {duration_max_sec}]"}
         )
+        if n_downloaded == 0:
+            logger.warning(f"No music found for query: {query}")
+
         shutil.move(self.freesound_fetch.temp_files[-1], output_file)
         return True
 
@@ -157,6 +166,8 @@ class SegmentsToTimeline:
             from_type = self.timeline.get_last_type()
             if from_type:
                 from_type = from_type.lower()
+            else:
+                from_type = "any"
             if to_type:
                 to_type = to_type.lower()
             logger.info(f"Last type was {from_type}")

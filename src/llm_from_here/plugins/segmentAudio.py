@@ -18,6 +18,10 @@ class SegmentAudio():
         self.freesound_fetch = freesoundfetch.FreeSoundFetch(params, global_results, plugin_instance_name)
         self.yt_fetch = ytfetch.YtFetch()
         self.chat_app_object = global_results.get(params.get('chat_app_object', 'intro_chat_app'), None)
+        
+        #clear chat app to save tokens by default
+        if params.get("clear_chat_app", True) and self.chat_app_object:
+            self.chat_app_object.reset_conversation()
         self.global_results = global_results
         self.params = params
         self.plugin_instance_name = plugin_instance_name

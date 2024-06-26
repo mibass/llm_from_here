@@ -1,5 +1,6 @@
 import json
 import llm_from_here.plugins.gpt as gpt
+import llm_from_here.plugins.llm_factory as llm_factory
 from jsonschema import validate
 from jsonschema.exceptions import ValidationError
 import logging
@@ -18,7 +19,7 @@ def render_template(template_string, **kwargs):
 
 class IntroFromGuestlist:
     def __init__(self, params, global_params, plugin_instance_name, chat_app=None):
-        self.chat_app = chat_app or gpt.ChatApp(params['system_message'])
+        self.chat_app = chat_app or llm_factory.get_llm_provider(params.get("system_message"))
         self.params = params
         self.global_params = global_params
         self.plugin_instance_name = plugin_instance_name

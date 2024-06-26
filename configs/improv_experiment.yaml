@@ -101,7 +101,7 @@ plugins:
         sound effect:
           segment_type: music_generator_freesound
           arguments:
-            duration_min_sec: 1
+            duration_min_sec: 0
             duration_max_sec: 60
         background:
           segment_type: music_generator_freesound
@@ -113,12 +113,7 @@ plugins:
         sound effect:
           any:
             overlay_percentage: 100
-      #   chris thile:
-      #     audience:
-      #       overlay_duration: 1
-      #       gain: -5
-      #       gain_match: True
-      #       fade_out: 500
+
 
   - name: audio_render
     plugin: audioTimeline

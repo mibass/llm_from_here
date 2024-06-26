@@ -45,6 +45,8 @@ class ChatApp:
         self.system_message = system_message
         self.responses = []
         self.client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        #defaults to 0, which uses "log probability" to do something https://platform.openai.com/docs/api-reference/audio#chat/create-temperature
+        # self.temperature = os.getenv("OPENAI_TEMPERATURE", 0)
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -183,7 +185,8 @@ class ChatApp:
         self,
         message,
         num_entries=100,
-        list_format="output the list formatted as a yaml list wrapped in 3 single quotes and make it have {} entries",
+        # list_format="output the list formatted as a yaml list wrapped in 3 single quotes and make it have {} entries",
+        list_format="output only the list formatted as a markdown list wrapped in 3 single quotes (''') and make it have {} entries; do not number the list, only output it in markdown format",
         log_prompt=False,
         tries=5,
         delay=2,
@@ -212,9 +215,12 @@ class ChatApp:
                 logger.info(f"Chat app response: {response}")
             try:
                 # Extract the response between triple single quotes, or backticks
+                response = response.replace("'''yaml", "'''")
+                response = response.replace("```yaml", "```")
                 match = re.search(r"(?:(```)|(?:'''))(.*?)(?:(```)|(?:'''))", response, re.DOTALL)
                 if match:
-                    extracted_response = match.group(1)
+                    extracted_response = match.group(2)
+                    logger.info(f"Extracted response: {extracted_response}")
 
                     # Try parsing as YAML
                     try:
@@ -222,7 +228,7 @@ class ChatApp:
                     except yaml.YAMLError:
                         # If that fails, try parsing as a bullet list
                         response_as_list = [
-                            line.strip()[1:].strip()
+                            line.strip("- ").strip()
                             for line in extracted_response.split("\n")
                             if line.strip().startswith("-")
                         ]

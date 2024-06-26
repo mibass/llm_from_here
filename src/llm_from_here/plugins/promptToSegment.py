@@ -1,6 +1,7 @@
 
 import logging
 from llm_from_here.plugins.gpt import ChatApp
+import llm_from_here.plugins.llm_factory as llm_factory
 import re
 import yaml
 import fnmatch
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class PromptToSegment:
     def __init__(self, params, global_params, plugin_instance_name):
-        self.chat_app =  ChatApp(params.get('system_message', ''))
+        self.chat_app = llm_factory.get_llm_provider(params.get("system_message"))
         self.params = params
         self.global_params = global_params
         self.plugin_instance_name = plugin_instance_name

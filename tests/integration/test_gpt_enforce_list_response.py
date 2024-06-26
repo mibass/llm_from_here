@@ -1,4 +1,5 @@
-import llm_from_here.plugins.gpt as gpt
+# import llm_from_here.plugins.gpt as gpt
+import llm_from_here.plugins.llm_factory as llm_factory
 import pytest
 import dotenv
 import json
@@ -8,7 +9,8 @@ dotenv.load_dotenv()
 
 @pytest.fixture
 def chat_app():
-    return gpt.ChatApp("")
+    # return gpt.ChatApp("")
+    return llm_factory.get_llm_provider()
 
 prompts = [
 """
@@ -34,7 +36,7 @@ def test_enforce_list_response(chat_app, prompt):
     # assert response == {"answer": expected_answer}
 
 @pytest.mark.parametrize("prompt", prompts)
-def test_enforce_list_response_consensus(chat_app, prompt):
+def test_enforce_consensus_list_response(chat_app, prompt):
     print(prompt)
     n=50
     response = chat_app.enforce_list_response_consensus(
