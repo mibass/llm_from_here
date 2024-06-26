@@ -16,7 +16,8 @@ class GuestSelection:
         self.plugin_instance_name = plugin_instance_name
 
     def add_to_queue(self, sq, n, prompt):
-        x = self.chat_app.enforce_list_response_consensus(prompt, n, log_prompt=True)
+        # x = self.chat_app.enforce_list_response_consensus(prompt, n, log_prompt=True)
+        x = self.chat_app.enforce_list_response(prompt, n, log_prompt=True)
         sq.enqueue(x)
 
     def get_params(self, guest_category):

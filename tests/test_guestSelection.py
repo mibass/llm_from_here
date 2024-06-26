@@ -23,9 +23,9 @@ class TestGuestSelection:
     def test_add_to_queue(self, guest_selection, mock_supa_queue, mock_chat_app):
         n = 1
         prompt = 'Hello'
-        mock_chat_app.enforce_list_response_consensus.return_value = ['guest1']*n
+        mock_chat_app.enforce_list_response.return_value = ['guest1']*n
         guest_selection.add_to_queue(mock_supa_queue, n, prompt)
-        mock_chat_app.enforce_list_response_consensus.assert_called_with(prompt, n, log_prompt=True)
+        mock_chat_app.enforce_list_response.assert_called_with(prompt, n, log_prompt=True)
         mock_supa_queue.enqueue.assert_called_with(['guest1']*n)
 
     def test_get_params(self, guest_selection):
