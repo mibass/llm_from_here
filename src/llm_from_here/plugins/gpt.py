@@ -212,9 +212,9 @@ class ChatApp:
                 logger.info(f"Chat app response: {response}")
             try:
                 # Extract the response between triple single quotes, or backticks
-                match = re.search(r"(?:(```)|(?:'''))(.*?)(?:(```)|(?:'''))", response, re.DOTALL)
+                match = re.search(r"'''(.*?)'''", response, re.DOTALL) or re.search(r"```(.*?)```", response, re.DOTALL)
                 if match:
-                    extracted_response = match.group(1)
+                    extracted_response = match.group(1).strip()
 
                     # Try parsing as YAML
                     try:
@@ -285,7 +285,7 @@ class ChatApp:
 
             response_counts = Counter(all_responses)
             consensus_responses = [
-                item for item, count in response_counts.items() if count >= 2
+                item for item, count in response_counts.items() if count >= num_consensus
             ]
 
             if len(consensus_responses) >= num_entries:
