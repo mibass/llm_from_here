@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm_from_here"
+dynamic = ["version"]
+description = "A project for generating podcasts with LLMs"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "gTTS",
+  "pydub",
+  "google_auth_oauthlib",
+  "google-api-python-client",
+  "openai>=1.2",
+  "jsonschema",
+  "sqlitedict",
+  "isodate",
+  "pathvalidate",
+  "fuzzywuzzy",
+  "python-Levenshtein",
+  "python-dotenv",
+  "feedparser",
+  "retry",
+  "supabase",
+  "yt-dlp",
+  "pyyaml",
+  "appdirs",
+  "numpy",
+  "scipy",
+  "jinja2",
+  "scikit-learn",
+  "librosa",
+  "plotly",
+  "matplotlib",
+  "pandas",
+  "freesound-python @ git+https://github.com/MTG/freesound-python.git#egg=freesound",
+  "pyyaml-include<2",
+  "ytmusicapi",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "ruff",
+  "mypy",
+  "pyright",
+  "pip-audit",
+  "types-PyYAML",
+  "types-requests",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "llm_from_here.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+llm_from_here = ["resources/*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "off"
+reportMissingImports = "none"
+reportMissingTypeStubs = "none"
+exclude = ["tests/integration"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src", "tests"]
+exclude = ["tests/integration"]
+ignore_missing_imports = true
+disable_error_code = ["attr-defined", "no-untyped-def", "var-annotated", "assignment", "import-untyped", "no-redef"]
+
+[tool.pytest.ini_options]
+markers = [
+  "integration: tests that call live APIs or external services (not run in default CI).",
+]

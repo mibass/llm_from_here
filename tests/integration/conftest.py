@@ -4,6 +4,8 @@ import sys
 from pydub import AudioSegment
 import numpy as np
 
+pytestmark = pytest.mark.integration
+
 # Configure logging to output to stdout
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 

@@ -8,7 +8,7 @@ on:
 
 jobs: 
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Get latest release
         id: latestrelease
@@ -17,28 +17,39 @@ jobs:
           echo "tag=${LATEST_RELEASE_TAG}" >> $GITHUB_OUTPUT
         env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Checkout code
-        uses: actions/checkout@v3
+
+      - uses: actions/checkout@v4
+
+      - name: Install ffmpeg (Ubuntu distro, pinned)
+        run: |
+          sudo apt-get update
+          PIN=$(tr -d '[:space:]' < .github/ffmpeg-deb.pin)
+          sudo apt-get install -y "ffmpeg=${PIN}"
+          ffmpeg -version | head -n 2
+
+      - name: Checkout release tag
+        uses: actions/checkout@v4
         with:
           ref: ${{ steps.latestrelease.outputs.tag }}
 
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10.11'
-          # cache: 'pip' # caching pip dependencies
 
-      - run: pip install -e .
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - run: uv sync --extra dev
+
+      - name: Run tests before release
+        run: uv run pytest tests/test*.py
 
       - name: Run show
         run: |
-          python -m llm_from_here.showRunner configs/configv3.yaml 
+          uv run python -m llm_from_here.showRunner configs/configv3.yaml
         env:
-            OPENAI_MODEL_NAME: gpt-4-1106-preview
+            OPENAI_MODEL_NAME: gpt-4o-mini
             OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
             YT_API_KEY: ${{ secrets.YT_API_KEY }}
             FREESOUND_API_KEY: ${{ secrets.FREESOUND_API_KEY }}
@@ -49,7 +60,7 @@ jobs:
             
       - name: Upload log file
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: log-file
           path: showRunner.log

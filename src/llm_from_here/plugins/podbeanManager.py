@@ -3,6 +3,7 @@ from requests.auth import HTTPBasicAuth
 import dotenv
 import os
 import mimetypes
+from retry import retry
 
 import logging
 logger = logging.getLogger(__name__)
@@ -39,7 +40,9 @@ class PodbeanManager:
 
         self.access_token = None
         self.episodes = []
+        self.request_timeout = params.get('request_timeout_sec', 30)
 
+    @retry((requests.RequestException,), tries=3, delay=2)
     def get_access_token(self):
         url = "https://api.podbean.com/v1/oauth/token"
         headers = {
@@ -48,13 +51,19 @@ class PodbeanManager:
         data = {
             'grant_type': 'client_credentials',
         }
-        response = requests.post(url, headers=headers, data=data, auth=HTTPBasicAuth(
-            self.client_id, self.client_secret))
+        response = requests.post(
+            url,
+            headers=headers,
+            data=data,
+            auth=HTTPBasicAuth(self.client_id, self.client_secret),
+            timeout=self.request_timeout,
+        )
         if response.status_code == 200:
             self.access_token = response.json()['access_token']
         else:
             raise Exception(f'Failed to get access token: {response.content}')
 
+    @retry((requests.RequestException,), tries=3, delay=2)
     def get_episodes(self):
         url = "https://api.podbean.com/v1/episodes"
         params = {
@@ -62,7 +71,7 @@ class PodbeanManager:
             'offset': 0,
             'limit': 10
         }
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, timeout=self.request_timeout)
         if response.status_code == 200:
             self.episodes = response.json()['episodes']
         else:
@@ -114,7 +123,7 @@ class PodbeanManager:
             if value is not None:
                 data[key] = value
 
-        response = requests.post(url, data=data)
+        response = requests.post(url, data=data, timeout=self.request_timeout)
         if response.status_code == 200:
             logging.info(f'Successfully published episode: {response.json()}')
         else:
@@ -149,7 +158,7 @@ class PodbeanManager:
         }
 
         # Send the authorization request
-        auth_response = requests.get(auth_url, params=auth_params)
+        auth_response = requests.get(auth_url, params=auth_params, timeout=self.request_timeout)
 
         # Check if the request was successful
         if auth_response.status_code == 200:
@@ -160,7 +169,9 @@ class PodbeanManager:
 
             # Upload the file to the presigned URL
             with open(self.file_path, 'rb') as file:
-                upload_response = requests.put(presigned_url, data=file)
+                upload_response = requests.put(
+                    presigned_url, data=file, timeout=self.request_timeout
+                )
 
             # Check if the upload was successful
             if upload_response.status_code == 200:
@@ -187,7 +198,7 @@ class PodbeanManager:
             'access_token': self.access_token,
             'delete_media_file': 'yes'
         }
-        response = requests.post(url, data=data)
+        response = requests.post(url, data=data, timeout=self.request_timeout)
         if response.status_code != 200:
             raise Exception(f'Failed to delete episode: {response.content}')
         
@@ -210,17 +221,3 @@ class PodbeanManager:
 
         return {'publish_response': publish_response}
 
-
-if __name__ == "__main__":
-    import dotenv
-    # #get command line args
-    # text = sys.argv[1]
-    # speed = sys.argv[2]
-    # output_file = sys.argv[3]
-
-    pbm = PodbeanManager(dotenv.get_key(
-        '.env', 'PODBEAN_CLIENT_ID'), dotenv.get_key('.env', 'PODBEAN_CLIENT_SECRET'))
-
-    pbm.get_access_token()
-    pbm.get_episodes()
-    print(pbm.episodes)

@@ -22,13 +22,24 @@ logger = logging.getLogger(__name__)
 
 class YtFetch():
     def __init__(self, **kwargs):
+        api_key = os.getenv('YT_API_KEY')
+        if not api_key:
+            raise ValueError("Missing required environment variable: YT_API_KEY")
         self.youtube = googleapiclient.discovery.build("youtube", "v3", 
-                                                       developerKey=os.environ['YT_API_KEY'])
+                                                       developerKey=api_key)
         self.ytmusic = ytmusicapi.YTMusic()
         self.last_response = None
         supaset_name = f'{is_production_prefix()}ytfetch_video_ids_returned'
         self.video_ids_returned = SupaSet(supaset_name,
                                           autoexpire = kwargs.get('video_ids_supaset_autoexpire_days', 180))
+
+    @retry((googleapiclient.errors.HttpError,), tries=3, delay=2)
+    def _execute_with_retry(self, request, operation_name):
+        try:
+            return request.execute()
+        except googleapiclient.errors.HttpError as error:
+            logger.warning(f"{operation_name} failed, retrying: {error}")
+            raise
         
     def finalize(self):
         logger.info("Finalizing YtFetch")
@@ -50,7 +61,7 @@ class YtFetch():
             safeSearch="strict",
             order=orderby #rating, relevance, viewCount, date, title, videoCount
         )
-        response = request.execute()
+        response = self._execute_with_retry(request, "youtube_search")
         self.last_response = response
         videos = []
         for item in response['items']:
@@ -210,7 +221,7 @@ class YtFetch():
                     part="snippet, contentDetails",
                     id=video_id
                 )
-                video_response = video_request.execute()
+                video_response = self._execute_with_retry(video_request, "youtube_video_details")
 
                 # Get the video duration and description
                 duration = video_response['items'][0]['contentDetails']['duration']
@@ -297,7 +308,7 @@ class YtFetch():
             playlistId=playlist_id,
             fields="items(snippet(resourceId(videoId)))"
         )
-        response = request.execute()
+        response = self._execute_with_retry(request, "youtube_playlist_items")
         self.last_response = response
         return [item['snippet']['resourceId']['videoId'] for item in response['items']]
 
@@ -326,7 +337,7 @@ class YtFetch():
                     part="snippet",
                     id=random_video_id
                 )
-                video_response = video_request.execute()
+                video_response = self._execute_with_retry(video_request, "youtube_video_metadata")
 
                 assert 'items' in video_response and video_response['items'], 'No video details found'
                 video_item = video_response['items'][0]

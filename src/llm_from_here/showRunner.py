@@ -13,6 +13,7 @@ from llm_from_here.pickleDict import PickleDict
 import appdirs
 import llm_from_here.plugins as plugins
 from llm_from_here.common import is_production
+import uuid
 
 # load env variables
 load_dotenv()  # take environment variables from .env.
@@ -21,6 +22,11 @@ load_dotenv()  # take environment variables from .env.
 logging.basicConfig(filename='showRunner.log', level=logging.INFO,
                     format='%(asctime)s:%(name)s:%(levelname)s:%(message)s')
 logger = logging.getLogger(__name__)
+def _log_context(run_id, plugin_name, phase, message, level="info"):
+    context = f"run_id={run_id} plugin={plugin_name} phase={phase}"
+    log_message = f"{context} message={message}"
+    getattr(logger, level)(log_message)
+
 
 # Global dictionary to store merged results
 global_results = {}
@@ -81,11 +87,13 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
     # Determine the run count based on previous folder
     last_run_count = get_last_run_count(show_name, outputs_dir)
     run_count = last_run_count + 1
+    run_id = str(uuid.uuid4())
 
     # create the folder, if it doesn't exist
     output_folder = os.path.join(outputs_dir, f"{show_name}_run{run_count}")
     os.makedirs(output_folder, exist_ok=True)
     global_results['output_folder'] = output_folder
+    global_results['run_id'] = run_id
     
     # list of objects that need to be finalized at the end of a successful run
     to_be_finalized = []
@@ -101,14 +109,11 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
         only_in_prod = entry.get('only_in_prod', False)
         
         if plugin_retries > 1:
-            logger.info(
-                f"Retries enabled for plugin '{plugin_name}:{name_key}'.")
+            _log_context(run_id, plugin_name, "init", f"retries={plugin_retries}")
         if cache_plugin:
-            logger.info(
-                f"Cache enabled for plugin '{plugin_name}:{name_key}'.")
+            _log_context(run_id, plugin_name, "init", "cache_enabled=true")
         if only_in_prod and not is_production():
-            logger.info(
-                f"Skipping plugin '{plugin_name}:{name_key}' because it is only enabled in production.")
+            _log_context(run_id, plugin_name, "skip", "only_in_prod plugin skipped")
             continue
 
         # Generate hash of the plugin entry
@@ -119,27 +124,24 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
         if cache_plugin and entry_hash in plugin_cache:
             from_cache = True
             plugin_results = plugin_cache[entry_hash]
-            logger.info(
-                f"Plugin '{plugin_name}' results retrieved from cache.")
+            _log_context(run_id, plugin_name, "cache", "results retrieved from cache")
         else:
             # Import the plugin if it exists
             try:
                 module = importlib.import_module(f'llm_from_here.plugins.{plugin_name}')
                 plugin_class = getattr(module, plugin_class)
-                logger.info(
-                    f"Plugin '{plugin_name}' has been imported successfully.")
+                _log_context(run_id, plugin_name, "import", "plugin imported successfully")
             except AttributeError:
-                logger.critical(f"Plugin '{plugin_name}' not found.")
+                _log_context(run_id, plugin_name, "import", "plugin class not found", level="critical")
                 raise
             except ModuleNotFoundError:
-                logger.critical(f"Module '{plugin_name}' not found.")
+                _log_context(run_id, plugin_name, "import", "plugin module not found", level="critical")
                 raise
 
             plugin_results, plugin_instance = execute_plugin(
                 plugin_class, plugin_params, global_results, plugin_instance_name=name_key, retries=plugin_retries)
 
-            logger.info(
-                f"Plugin '{plugin_name}' has been executed successfully.")
+            _log_context(run_id, plugin_name, "execute", "plugin executed successfully")
 
             # Store results in cache
             if cache_plugin:
@@ -156,7 +158,7 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
                 logger.info(f"Adding {value} to to_be_finalized")
                 to_be_finalized.append(value)
             
-        logger.info(f"Plugin '{plugin_name}' results: {prepended_results}")
+        _log_context(run_id, plugin_name, "results", f"keys={list(prepended_results.keys())}")
 
         # check if plugin_instance has a finalize method
         if not from_cache and hasattr(plugin_instance, 'finalize'):
@@ -168,7 +170,7 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
         
     #finalize
     for obj in to_be_finalized:
-        logger.info(f"Finalizing object {obj}")
+        logger.info(f"run_id={run_id} phase=finalize object={obj}")
         obj.finalize()
 
 def get_last_run_count(show_name, outputs_dir):
