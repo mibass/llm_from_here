@@ -18,7 +18,7 @@ These instructions use `uv` for local development and CI parity.
 
 ### Prerequisites
 
-- Python 3.10
+- Python 3.12
 - [uv](https://docs.astral.sh/uv/)
 - **macOS:** [Miniconda](https://docs.conda.io/en/latest/miniconda.html) / [Mambaforge](https://github.com/conda-forge/miniforge) for ffmpeg (see below)
 - **Linux CI:** ffmpeg comes from the Ubuntu 24.04 archive (pinned in-repo; see [.github/ffmpeg-deb.pin](.github/ffmpeg-deb.pin))
@@ -44,9 +44,9 @@ Use a dedicated env if you like; activate it before `uv run pytest` / ShowRunner
     ```
     cd llm_from_here
     ```
-1. Ensure Python **3.10** is used (see [.python-version](.python-version); `uv` will respect it):
+1. Ensure Python **3.12** is used (see [.python-version](.python-version); `uv` will respect it):
     ```
-    uv python install 3.10
+    uv python install 3.12
     ```
 
 1. Sync project dependencies:
