@@ -30,29 +30,13 @@ plugins:
           [BACKGROUND MUSIC: bluegrass]
 
       json_script_prompt: >
-        Now take that intro and format it into JSON. 
-        Each line of dialog should be a new object in the JSON array.
-        Background music should get its own cue in the array with a speaker name of Music and a dialog of [MUSIC <music_type>], for example [MUSIC bluegrass].
+        Now take that intro and format it into a structured line-by-line script.
+        Each line of dialog should be one entry with speaker and dialog text.
+        Background music should get its own cue with speaker name Music and dialog of [MUSIC <music_type>], for example [MUSIC bluegrass].
         There should be only one music cue, and it should be first.
-        Applause breaks should get their own object in the array with a speaker name of Audience and a dialog of [APPLAUSE duration x], for example [APPLAUSE duration 10].
+        Applause breaks should get their own entry with speaker name Audience and dialog of [APPLAUSE duration x], for example [APPLAUSE duration 10].
         The only valid values for speaker are Music, Chris Thile, and Audience.
         Choose only one music cue and make it the first speaker.
-        Respond only with the following schema:
-
-      json_script_prompt_js:
-        type: array
-        items:
-          type: object
-          properties:
-            speaker:
-              type: string
-              pattern: '^(?i)(music|chris thile|audience)$'
-            dialog:
-              type: string
-              pattern: '^(?i)(\[music [a-z\-]+\]|\[applause duration [0-9]+\]|.+)$'
-          required:
-            - speaker
-            - dialog
 
       extra_prompts:
         # - name: story
@@ -176,21 +160,11 @@ plugins:
               
               Make your best guess attempt and respond only with yes or no.
 
-              The title is "{{ title }}" and the channel title is "{{ channel_title }}
+              The title is "{{ title }}" and the channel title is "{{ channel_title }}"
               and the description is:
               ```
                {{ description }}
               ```
-
-              Respond only with the following schema:
-            llm_filter_js:
-              type: object
-              properties:
-                answer:
-                  type: string
-                  pattern: '^(?i)(yes|no)$'
-              required:
-                - answer
         actor:
           <<: *author
         improv:

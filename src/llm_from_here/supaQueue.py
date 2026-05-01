@@ -11,11 +11,12 @@ CREATE TABLE IF NOT EXISTS supaqueue (
     to_be_deleted BOOLEAN DEFAULT FALSE  
 );
 
-It also requires environment variables to be set for SUPASET_URL and SUPASET_KEY.
+It also requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or legacy SUPASET_URL / SUPASET_KEY).
 """
 from supabase import create_client
 import logging
-import os
+
+from llm_from_here.supabase_env import get_supabase_service_role_key, get_supabase_url
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +24,9 @@ class SupaQueue:
     table_name = 'supaqueue'
 
     def __init__(self, queue_name, case_sensitive=True):
-        SUPASET_URL = os.environ.get('SUPASET_URL')
-        SUPASET_KEY = os.environ.get('SUPASET_KEY')
-
-        self.client = create_client(SUPASET_URL, SUPASET_KEY)
+        url = get_supabase_url()
+        key = get_supabase_service_role_key()
+        self.client = create_client(url, key)
         self.queue_name = queue_name
         self.case_sensitive = case_sensitive
         self._cleanup_incomplete_sessions()
@@ -119,9 +119,7 @@ class SupaQueue:
     def __setstate__(self, state):
         self.queue_name = state['queue_name']
         self.case_sensitive = state['case_sensitive']
-        SUPASET_URL = os.environ.get('SUPASET_URL')
-        SUPASET_KEY = os.environ.get('SUPASET_KEY')
-
-        # Re-create the Supabase client.
-        self.client = create_client(SUPASET_URL, SUPASET_KEY)
+        url = get_supabase_url()
+        key = get_supabase_service_role_key()
+        self.client = create_client(url, key)
 

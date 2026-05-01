@@ -1,5 +1,6 @@
 import json
 import llm_from_here.plugins.gpt as gpt
+from llm_from_here.schemas.llm_outputs import GuestListJson, IntroScriptLines
 from jsonschema import validate
 from jsonschema.exceptions import ValidationError
 import logging
@@ -97,11 +98,15 @@ class Intro:
         logger.info(f"Script: {self.script}")
         
         #json script with enforced json
-        self.intro = self.chat_app.enforce_json_response(params['json_script_prompt'], params['json_script_prompt_js'], log_prompt=True)
+        self.intro = self.chat_app.run_structured(
+            params["json_script_prompt"], IntroScriptLines, log_prompt=True
+        )
         logger.info(f"Intro json: {self.intro}")
-        
-        #json guests
-        self.guests = self.chat_app.enforce_json_response(params['json_guest_prompt'], params['json_guest_prompt_js'], log_prompt=True)
+
+        # json guests
+        self.guests = self.chat_app.run_structured(
+            params["json_guest_prompt"], GuestListJson, log_prompt=True
+        )
         logger.info(f"Guests json: {self.guests}")
 
         self.normalize_guest_categories()

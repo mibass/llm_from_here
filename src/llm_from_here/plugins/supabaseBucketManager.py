@@ -4,6 +4,9 @@ import dotenv
 import os
 import logging
 import tempfile
+
+from llm_from_here.supabase_env import get_supabase_service_role_key, get_supabase_url
+
 dotenv.load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -15,10 +18,8 @@ class SupabaseBucketManager:
         self.global_results = global_results
         self.plugin_instance_name = plugin_instance_name
         
-        # Initialize with your supabase url and supabase key
-        url = os.getenv('SUPASET_URL')
-        key = os.getenv('SUPASET_KEY')
-        
+        url = get_supabase_url()
+        key = get_supabase_service_role_key()
         self.supabase = supabase.create_client(url, key)
         
         self.bucket_name = self.params.get('bucket_name')

@@ -4,16 +4,8 @@ llm_filter_prompt: >
   avoid controversial, misogynistic, and political content. You should be more lenient
   with channels from well known sources like NPR, PBS, and the BBC as well as late night
   talk shows.
-  
+
   Make your best guess attempt and respond only with yes or no.
 
   The title is "{{ title }}" and the description is "{{ description }}"
   and the channel title is "{{ channel_title }}".
-
-  Respond only with the following schema:
-llm_filter_js:
-  type: object
-  properties:
-    answer:
-      type: string
-      pattern: '^(?i)(yes|no)$'

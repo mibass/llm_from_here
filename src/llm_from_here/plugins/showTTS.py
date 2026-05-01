@@ -1,12 +1,6 @@
 import numpy as np
 import re
 
-# from bark.generation import (
-#     generate_text_semantic,
-#     preload_models,
-# )
-# from bark.api import semantic_to_waveform
-# from bark import SAMPLE_RATE, generate_audio, preload_models
 from scipy.io.wavfile import write as write_wav
 from gtts import gTTS
 from pydub import AudioSegment
@@ -16,6 +10,13 @@ import os
 import dotenv
 import logging
 import openai
+
+from llm_from_here.llm_env import (
+    build_openrouter_client,
+    get_openrouter_tts_model,
+    get_openrouter_tts_voice,
+    is_openrouter_free_mode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +34,15 @@ def split_sentences(text):
 
 
 def trim_silence_np_array(audio_array, sample_rate):
-    # Convert numpy array to audio segment
+    # Convert the numpy array to an audio segment
     audio_segment = AudioSegment(
         audio_array.tobytes(),
         frame_rate=sample_rate,
-        sample_width=audio_array.dtype.itemsize,
+        frame_width=audio_array.dtype.itemsize,
         channels=1,
     )
 
-    # Check if the audio_segment is stereo and convert it if not
+    # Convert the audio_segment to stereo if it is not
     if audio_segment.channels == 1:
         audio_segment = audio_segment.set_channels(2)
 
@@ -65,17 +66,22 @@ class ShowTextToSpeech:
         self.pieces = None
         self.audio_file = None
         self.models_preloaded = False
-        self.openai_model_name = os.getenv("OPENAI_TTS_MODEL_NAME", "tts-1-1106")
-        self.openai_api_key = os.getenv("OPENAI_API_KEY", None)
-        self.openai_client = None
+        self.tts_model_name = get_openrouter_tts_model()
+        self.tts_voice = get_openrouter_tts_voice()
+        self._openrouter_client: openai.OpenAI | None = None
 
     def speak(self, text, output_file, fast=False):
-        if fast:
+        if fast or is_openrouter_free_mode():
+            if is_openrouter_free_mode() and not fast:
+                logger.info(
+                    "LLMFH_OPENROUTER_FREE_MODE: using gTTS instead of paid OpenRouter TTS for: %s",
+                    text[:80],
+                )
             logger.info(f"Using fast TTS for text: {text}")
             self._speak_gtts(text, output_file)
         else:
             logger.info(f"Using slow TTS for text: {text}")
-            self._speak_openai_tts(text, output_file)
+            self._speak_openrouter_tts(text, output_file)
 
     def _speak_gtts(self, text, output_file):
         # fast version that uses google TTS
@@ -92,30 +98,27 @@ class ShowTextToSpeech:
         logger.info(f"Successfully generated audio file: {output_file}")
         self.audio_file = output_file
 
-    def init_openai_client(self):
-        if self.openai_api_key is None:
-            raise ValueError("OPENAI_API_KEY must be set to use OpenAI TTS")
+    def _get_openrouter_client(self) -> openai.OpenAI:
+        if self._openrouter_client is None:
+            self._openrouter_client = build_openrouter_client()
+        return self._openrouter_client
 
-        self.openai_client = openai.OpenAI(api_key=self.openai_api_key)
+    def _speak_openrouter_tts(self, text, output_file):
+        client = self._get_openrouter_client()
 
-    def _speak_openai_tts(self, text, output_file):
-        if self.openai_client is None:
-            self.init_openai_client()
-
-        # Call OpenAI's TTS API
-        response = self.openai_client.audio.speech.create(
-            model=self.openai_model_name,
-            voice="echo",
-            input=text
-            )
+        response = client.audio.speech.create(
+            model=self.tts_model_name,
+            voice=self.tts_voice,
+            input=text,
+        )
 
         # Save the audio to a file
-        response.stream_to_file(output_file+".mp3")
+        response.stream_to_file(output_file + ".mp3")
 
-        #convert to wav
-        audio = AudioSegment.from_mp3(output_file+".mp3")
+        # convert to wav
+        audio = AudioSegment.from_mp3(output_file + ".mp3")
         audio.export(output_file, format="wav")
-        os.remove(output_file+".mp3")
+        os.remove(output_file + ".mp3")
 
         logger.info(f"Successfully generated audio file: {output_file}")
         self.audio_file = output_file

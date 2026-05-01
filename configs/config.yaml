@@ -23,33 +23,21 @@ plugins:
           [BACKGROUND MUSIC: bluegrass]
 
       json_script_prompt: >
-        Now take that intro and format it into JSON. 
-        Each line of dialog should be a new object in the JSON array.
-        Background music should get its own object in the array with a speaker name of Music and a dialog of [MUSIC <music_type>], for example [MUSIC bluegrass].
+        Now take that intro and format it into a structured line-by-line script.
+        Each line of dialog should be one entry with speaker and dialog text.
+        Background music should get its own cue with speaker name Music and dialog of [MUSIC <music_type>], for example [MUSIC bluegrass].
         There should be only one music cue, and it should be first.
-        Applause breaks should get their own object in the array with a speaker name of Audience and a dialog of [APPLAUSE duration x], for example [APPLAUSE duration 10].
-        The JSON should have the following format
-        [{
-        "speaker": "name of speaker",
-        "dialog": "what the speaker says"
-        }]
+        Applause breaks should get their own entry with speaker name Audience and dialog of [APPLAUSE duration x], for example [APPLAUSE duration 10].
         The only valid values for speaker are Music, Chris Thile, and Audience.
-        The JSON response
 
       json_guest_prompt: >
-        Now return those guests as JSON. 
-        Do not include any explanations, only provide a RFC8259 compliant JSON response following this format without deviation.
-        The possible guest_categories are: Music, Comedy, Author, Actor, Improv
-        [{
-        "guest_category": "category of guest",
-        "guest_name": "name of guest"
-        }]
-        All music guests  should repeat 2 to 3 times and be intermixed throughout the show.
+        Now return those guests in structured form.
+        The possible guest_categories are: Music, Comedy, Author, Actor, Improv.
+        All music guests should repeat 2 to 3 times and be intermixed throughout the show.
         All Comedy, Author, Actor, and Improv guests should only appear once.
         The total number of entries in the list should be between 7 and 10.
         A guest_name should have the same guest_category each time it is listed.
-        The only possible guest_categories are: Music, Comedy, Author, Actor, Improv
-        The JSON response:
+        The only possible guest_categories are: Music, Comedy, Author, Actor, Improv.
 
       extra_prompts:
         - name: story

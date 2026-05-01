@@ -17,12 +17,13 @@ CREATE TABLE IF NOT EXISTS supasets (
 CREATE UNIQUE INDEX idx_supasets_unique_value 
 ON supasets (value, set_name);
 
-It also requires environment variables to be set for SUPASET_URL and SUPASET_KEY.
+It also requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or legacy SUPASET_URL / SUPASET_KEY).
 """
 from supabase import create_client
 from uuid import uuid4
 import logging
-import os
+
+from llm_from_here.supabase_env import get_supabase_service_role_key, get_supabase_url
 from datetime import datetime, timedelta
 from llm_from_here.common import is_production
 
@@ -47,10 +48,9 @@ class SupaSet:
     session_id = uuid4().hex  # Shared session ID for all instances
 
     def __init__(self, set_name, autoexpire=None, case_sensitive=False):
-        SUPASET_URL = os.environ.get("SUPASET_URL")
-        SUPASET_KEY = os.environ.get("SUPASET_KEY")
-
-        self.client = create_client(SUPASET_URL, SUPASET_KEY)
+        url = get_supabase_url()
+        key = get_supabase_service_role_key()
+        self.client = create_client(url, key)
         self.set_name = set_name
         # self.session_id = uuid4().hex  # Generate a new UUID for this session
         self.case_sensitive = case_sensitive

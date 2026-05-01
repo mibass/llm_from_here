@@ -14,6 +14,7 @@ from jinja2 import Template
 from llm_from_here.common import is_production_prefix
 import ytmusicapi
 from llm_from_here.common import get_nested_value
+from llm_from_here.schemas.llm_outputs import LlmFilterResponse
 
 import logging
 logger = logging.getLogger(__name__)
@@ -158,18 +159,18 @@ class YtFetch():
             duration = parse_duration(iso_duration)
             return duration.total_seconds()
 
-    def llm_filter_title(self, chat_app, llm_filter_prompt, llm_filter_js, title, description, channel_title):
+    def llm_filter_title(self, chat_app, llm_filter_prompt, title, description, channel_title):
         """
         Filter videos based on title, description, and channel title using a call to GPT.
         """
-        if llm_filter_prompt and llm_filter_js:
+        if llm_filter_prompt:
             template = Template(llm_filter_prompt)
             logger.info(f"LLM Checking video title {title}")
             prompt = template.render(title=title, description=description, channel_title=channel_title)
             logger.info(f"Prompt: {prompt}")
-            response = chat_app.enforce_json_response(prompt, llm_filter_js, log_prompt=True)
+            response = chat_app.run_structured(prompt, LlmFilterResponse, log_prompt=True)
             logger.info(f"Response: {response}")
-            if response['answer'] == 'no':
+            if response.get("answer", "").lower() == "no":
                 return True
         return False
 
@@ -179,7 +180,6 @@ class YtFetch():
         description_filters = kwargs.get('description_filters')
         orderby = kwargs.get('orderby', 'relevance')
         llm_filter_prompt = kwargs.get('llm_filter_prompt')
-        llm_filter_js = kwargs.get('llm_filter_js')
         chat_app = kwargs.get('chat_app')
         min_duration = kwargs.get('duration_min_sec')
         max_duration = kwargs.get('duration_max_sec')
@@ -244,8 +244,9 @@ class YtFetch():
                     continue
             
             #llm filter for title and description and channel_title
-            if self.llm_filter_title(chat_app, llm_filter_prompt, llm_filter_js, 
-                                     title, full_description, channel_title):
+            if self.llm_filter_title(
+                chat_app, llm_filter_prompt, title, full_description, channel_title
+            ):
                 logger.info(f"Video https://www.youtube.com/watch?v={video_id} removed by llm filter. Skipping.")
                 continue
             

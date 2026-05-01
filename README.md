@@ -73,16 +73,22 @@ This project uses dotenv to set environment variables. Keys are needed for:
 
 - google v3 youtube api `YT_API_KEY`
 - freesound api `FREESOUND_API_KEY`
-- openai `OPENAI_API_KEY`
+- OpenRouter `OPENROUTER_API_KEY` (chat + slow-path TTS via OpenAI-compatible SDK)
 - podbean id `PODBEAN_CLIENT_ID`
 - podbean secret `PODBEAN_CLIENT_SECRET`
-- supabase url `SUPASET_URL`
-- supabase key `SUPASET_KEY`
+- Supabase: `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (**service_role** JWT), or legacy `SUPASET_URL` / `SUPASET_KEY`
+
+See [.env.example](.env.example) and **[docs/supabase.md](docs/supabase.md)** for provisioning a new hosted project (CLI bootstrap) and GitHub secret mapping.
 
 Optional:
 
 - environment selector `LLMFH_ENV` (`prod` for production publishing)
-- model override `OPENAI_MODEL_NAME`
+- `OPENROUTER_MODEL` (OpenRouter slug, e.g. `openai/gpt-4o-mini`)
+- `OPENROUTER_TTS_MODEL`, `OPENROUTER_TTS_VOICE` for slow TTS
+- `LLMFH_STRUCTURED_OUTPUT_MODE=native|tool` (pydantic-ai structured output style)
+- `LLMFH_OPENROUTER_FREE_MODE=1` for zero-cost chat (`openrouter/free` when `OPENROUTER_MODEL` unset) and gTTS for slow TTS
+
+See [docs/llm_schema_inventory.md](docs/llm_schema_inventory.md) for structured-output model mapping.
 
 ### Usage
 

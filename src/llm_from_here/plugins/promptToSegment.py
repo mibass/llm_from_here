@@ -1,5 +1,6 @@
-
+import importlib
 import logging
+
 from llm_from_here.plugins.gpt import ChatApp
 import re
 import yaml
@@ -7,6 +8,16 @@ import fnmatch
 from llm_from_here.common import get_nested_value
 
 logger = logging.getLogger(__name__)
+
+
+def _import_output_model(spec: str) -> type:
+    """Import ``module.path:ClassName`` for structured prompt outputs."""
+    if ":" not in spec:
+        raise ValueError(f"output_model must look like 'pkg.mod:ClassName', got {spec!r}")
+    mod_name, _, attr = spec.partition(":")
+    mod = importlib.import_module(mod_name)
+    return getattr(mod, attr)
+
 
 class PromptToSegment:
     def __init__(self, params, global_params, plugin_instance_name):
@@ -149,16 +160,22 @@ class PromptToSegment:
 
         for prompt in self.params.get('prompts', []):
             prompt_text = prompt.get('prompt', None)
-            prompt_js = prompt.get('prompt_js', None)
+            prompt_js = prompt.get("prompt_js", None)
+            output_model = prompt.get("output_model")
             accumulate = prompt.get('accumulate', False)
-            
-            if prompt_js:
-                response = self.chat_app.enforce_json_response(
-                    prompt_text,
-                    prompt_js,
-                    log_prompt=True)
+
+            if output_model:
+                model_cls = _import_output_model(output_model)
+                response = self.chat_app.run_structured(
+                    prompt_text, model_cls, log_prompt=True
+                )
                 if accumulate:
                     self.segments += response
+            elif prompt_js:
+                raise ValueError(
+                    "prompt_js JSON Schema is no longer supported here. "
+                    "Use output_model: 'module.path:ClassName' pointing to a Pydantic model."
+                )
             else:
                 logger.info(f"Running prompt: {prompt_text}")
                 response=self.chat_app.chat(prompt_text)
