@@ -19,6 +19,7 @@ These instructions use `uv` for local development and CI parity.
 
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/)
+- **Deno** (for yt-dlp YouTube JS / “n challenge” solving — unrelated to cookies). Install with `curl -fsSL https://deno.land/install.sh | sh` or your package manager; the installer places `~/.deno/bin/deno`. ShowRunner passes this path to yt-dlp when present (or use `deno` on `PATH`, or set `YT_DLP_DENO`). CI uses [denoland/setup-deno](https://github.com/denoland/setup-deno).
 - **macOS:** [Miniconda](https://docs.conda.io/en/latest/miniconda.html) / [Mambaforge](https://github.com/conda-forge/miniforge) for ffmpeg (see below)
 - **Linux CI:** ffmpeg comes from the Ubuntu 24.04 archive (pinned in-repo; see [.github/ffmpeg-deb.pin](.github/ffmpeg-deb.pin))
 
@@ -63,6 +64,12 @@ For a **non-prod** dry run where Podbean publish is skipped by config, you can o
 
 ```bash
 uv run python scripts/preflight_env.py --strict --require-ffmpeg --skip-podbean
+```
+
+Include `--require-deno` if you want preflight to fail when Deno is missing (recommended before release-style runs):
+
+```bash
+uv run python scripts/preflight_env.py --strict --require-ffmpeg --require-deno --skip-podbean
 ```
 
 ### Configuration

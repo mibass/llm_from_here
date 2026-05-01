@@ -1,4 +1,4 @@
-
+import hashlib
 import unittest
 import tempfile
 from unittest.mock import patch, mock_open, call, MagicMock
@@ -6,6 +6,28 @@ import unittest.mock as mock
 import llm_from_here.showRunner as showRunner
 
 class TestShowRunner(unittest.TestCase):
+
+    def test_plugin_cache_entry_hash_stable_without_guests_parameter(self):
+        entry = {"plugin": "p", "class": "C", "cache": True, "params": {}}
+        gr = {"guest_selection_guests": [{"guest_name": "A"}]}
+        h1 = showRunner.plugin_cache_entry_hash(entry, gr)
+        h2 = showRunner.plugin_cache_entry_hash(entry, gr)
+        self.assertEqual(h1, h2)
+        self.assertEqual(h1, hashlib.md5(str(entry).encode()).hexdigest())
+
+    def test_plugin_cache_entry_hash_changes_with_guest_list(self):
+        entry = {
+            "plugin": "introFromGuestlist",
+            "class": "IntroFromGuestlist",
+            "cache": True,
+            "params": {"guests_parameter": "guest_selection_guests"},
+        }
+        gr_a = {"guest_selection_guests": [{"guest_name": "Pat", "guest_category": "music"}]}
+        gr_b = {"guest_selection_guests": [{"guest_name": "Sam", "guest_category": "music"}]}
+        self.assertNotEqual(
+            showRunner.plugin_cache_entry_hash(entry, gr_a),
+            showRunner.plugin_cache_entry_hash(entry, gr_b),
+        )
 
     @patch("os.path.isdir")
     @patch("os.listdir")

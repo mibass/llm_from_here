@@ -40,6 +40,9 @@ class PickleDict:
     def __iter__(self):
         return iter(self.data)
 
+    def __contains__(self, key):
+        return key in self.data
+
     def keys(self):
         return self.data.keys()
 

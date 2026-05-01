@@ -2,6 +2,9 @@ import copy
 import glob
 import json
 import os
+import shutil
+import tempfile
+import uuid
 import googleapiclient.discovery
 import googleapiclient.errors
 # import youtube_dl
@@ -22,6 +25,35 @@ from llm_from_here.schemas.llm_outputs import LlmFilterResponse
 
 import logging
 logger = logging.getLogger(__name__)
+
+# Progressive audio first (HTTPS / plain HTTP URL); exclude definite DRM and yt-dlp's
+# "maybe" DRM bucket. Aligns selection with ``FFmpegExtractAudio`` → WAV post-process.
+# Installing Deno helps YouTube n-parameter / JS challenges without cookies (see yt-dlp EJS wiki).
+YOUTUBE_AUDIO_FORMAT_SPEC = (
+    "bestaudio[has_drm!=true][has_drm!=maybe][protocol=https]/"
+    "bestaudio[has_drm!=true][has_drm!=maybe][protocol^=http]/"
+    "bestaudio[has_drm!=true][has_drm!=maybe]/"
+    "bestaudio[has_drm!=true]/"
+    "bestaudio"
+)
+
+
+def _resolved_deno_executable() -> str | None:
+    """
+    Path to the Deno binary for yt-dlp JS/EJS challenges.
+
+    Order: YT_DLP_DENO, ``deno`` on PATH, then the default install.sh location ``~/.deno/bin/deno``.
+    """
+    env_p = os.getenv("YT_DLP_DENO", "").strip()
+    if env_p and os.path.isfile(env_p) and os.access(env_p, os.X_OK):
+        return env_p
+    which = shutil.which("deno")
+    if which and os.access(which, os.X_OK):
+        return which
+    default = os.path.join(os.path.expanduser("~"), ".deno", "bin", "deno")
+    if os.path.isfile(default) and os.access(default, os.X_OK):
+        return default
+    return None
 
 
 def _truthy_env(name: str) -> bool:
@@ -57,6 +89,8 @@ def merge_yt_dlp_env_into(ydl_opts: dict) -> None:
     YT_DLP_SOCKET_TIMEOUT — float seconds for socket_timeout.
     YT_DLP_VERBOSE — if truthy, forces verbose logging and disables quiet/noprogress.
     YT_DLP_DISABLE_FALLBACK — single attempt only (disables automatic no-cookie preset rotation).
+    YT_DLP_FORMAT — full yt-dlp -f string (overrides default progressive-audio chain).
+    YT_DLP_DENO — explicit path to ``deno`` (otherwise PATH / ~/.deno/bin/deno).
     """
     extractor_args: dict = {}
 
@@ -135,6 +169,10 @@ def merge_yt_dlp_env_into(ydl_opts: dict) -> None:
         ydl_opts["noprogress"] = False
         ydl_opts["verbose"] = True
 
+    format_override = os.getenv("YT_DLP_FORMAT", "").strip()
+    if format_override:
+        ydl_opts["format"] = format_override
+
 
 def _explicit_yt_dlp_strategy_env() -> bool:
     """True when the operator set tuning env vars (skip automatic preset rotation)."""
@@ -145,6 +183,7 @@ def _explicit_yt_dlp_strategy_env() -> bool:
         or os.getenv("YT_DLP_EXTRACTOR_ARGS_JSON", "").strip()
         or os.getenv("YT_DLP_COMPAT_OPTIONS", "").strip()
         or os.getenv("YT_DLP_USER_AGENT", "").strip()
+        or os.getenv("YT_DLP_FORMAT", "").strip()
     )
 
 
@@ -196,6 +235,27 @@ def _yt_dlp_fallback_overlays() -> tuple[dict, ...]:
     )
 
 
+def info_has_playable_youtube_audio(info: dict) -> bool:
+    """
+    True when yt-dlp extracted metadata shows at least one audio stream that is
+    not DRM-flagged as definite or ``maybe`` (matches ``YOUTUBE_AUDIO_FORMAT_SPEC`` filters).
+
+    Videos that only expose DRM formats will fail actual downloads; probing avoids that.
+    """
+    formats = info.get("formats")
+    if not formats:
+        return False
+    for fmt in formats:
+        acodec = fmt.get("acodec")
+        if acodec in (None, "none"):
+            continue
+        drm = fmt.get("has_drm")
+        if drm is True or drm == "maybe":
+            continue
+        return True
+    return False
+
+
 def build_yt_dlp_download_attempt_opts(base_opts: dict) -> list[dict]:
     """
     Build yt-dlp option dicts to try in order.
@@ -231,6 +291,85 @@ class YtFetch():
         supaset_name = f'{is_production_prefix()}ytfetch_video_ids_returned'
         self.video_ids_returned = SupaSet(supaset_name,
                                           autoexpire = kwargs.get('video_ids_supaset_autoexpire_days', 180))
+
+    def _build_youtube_audio_ydl_opts(
+        self,
+        output_stem: str,
+        max_duration=None,
+        *,
+        for_download: bool = False,
+    ) -> dict:
+        """Options aligned between probe and ``download_audio`` (same format chain + env)."""
+        ydl_opts = {
+            "format": YOUTUBE_AUDIO_FORMAT_SPEC,
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "wav",
+                    "preferredquality": "192",
+                }
+            ],
+            "outtmpl": output_stem,
+            "nocheckcertificate": True,
+            "remote_components": {"ejs:github"},
+            "quiet": True,
+            "noprogress": True,
+            "postprocessor_args": ["-ac", "2"],
+        }
+        deno_exe = _resolved_deno_executable()
+        if deno_exe:
+            ydl_opts["js_runtimes"] = {"deno": {"path": deno_exe}}
+        if for_download:
+            # HEAD/quick fragment test on the chosen format only (too slow for search probes).
+            ydl_opts["check_formats"] = "selected"
+        if max_duration:
+            logger.info(f"Setting max duration to {max_duration}")
+            ydl_opts["postprocessor_args"] = [
+                *ydl_opts["postprocessor_args"],
+                "-t",
+                str(max_duration),
+            ]
+        return ydl_opts
+
+    def youtube_video_has_extractable_audio(self, video_url: str, max_duration=None) -> bool:
+        """
+        Run yt-dlp metadata extraction (no download) and check that at least one
+        non-DRM audio format exists, using the same env-driven presets as ``download_audio``.
+        """
+        probe_stem = os.path.join(
+            tempfile.gettempdir(),
+            f"llmfh_yt_probe_{uuid.uuid4().hex}",
+        )
+        ydl_opts = self._build_youtube_audio_ydl_opts(probe_stem, max_duration)
+        merge_yt_dlp_env_into(ydl_opts)
+        attempts = build_yt_dlp_download_attempt_opts(ydl_opts)
+        last_err: BaseException | None = None
+        for idx, attempt_opts in enumerate(attempts):
+            opts = copy.deepcopy(attempt_opts)
+            opts["quiet"] = True
+            opts["noprogress"] = True
+            try:
+                with youtube_dl.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(video_url, download=False)
+                if info_has_playable_youtube_audio(info):
+                    return True
+            except (DownloadError, ExtractorError, YoutubeDLError, OSError) as err:
+                last_err = err
+                logger.debug(
+                    "yt-dlp DRM/audio probe attempt %s/%s failed: %s",
+                    idx + 1,
+                    len(attempts),
+                    err,
+                )
+            finally:
+                _scrub_partial_downloads(probe_stem)
+        if last_err:
+            logger.info(
+                "yt-dlp probe could not confirm playable audio for %s: %s",
+                video_url,
+                last_err,
+            )
+        return False
 
     @retry((googleapiclient.errors.HttpError,), tries=3, delay=2)
     def _execute_with_retry(self, request, operation_name):
@@ -298,32 +437,11 @@ class YtFetch():
         
     
     def download_audio(self, video_url, output_file, max_duration=None):
-        #strip .wav from output_file
         output_file = output_file.replace(".wav", "")
-
-        ydl_opts = {
-            'format': 'bestaudio',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'wav',
-                'preferredquality': '192',
-            }],
-            'outtmpl': output_file,
-            'nocheckcertificate': True,
-            # Fetch signed hashes/player JS helpers from GitHub when needed (CI-friendly).
-            'remote_components': {'ejs:github'},
-            'quiet': True,
-            'noprogress': True,
-            'postprocessor_args': ['-ac', '2'], #force 2-channels
-            # 'verbose': True
-        }
+        ydl_opts = self._build_youtube_audio_ydl_opts(
+            output_file, max_duration, for_download=True
+        )
         merge_yt_dlp_env_into(ydl_opts)
-        if max_duration:
-            logger.info(f"Setting max duration to {max_duration}")
-            #def download_ranges_callback(info_dict, ydl):
-            #    return [ {'start_time': 0, 'end_time': max_duration, 'title': 'Section 1', 'index': 1}]
-            #ydl_opts['download_ranges'] = download_ranges_callback
-            ydl_opts['postprocessor_args'].extend(['-t', str(max_duration)])
 
         attempts = build_yt_dlp_download_attempt_opts(ydl_opts)
         last_err: BaseException | None = None
@@ -430,8 +548,7 @@ class YtFetch():
             channel_title = video['channel_title']
             duration_seconds = video['duration'] if use_music else None
             
-            # Check if this video has already been returned
-            if not self.video_ids_returned.add(video_id):
+            if video_id in self.video_ids_returned:
                 logger.info(f"Video {video_id} already returned. Skipping.")
                 continue
 
@@ -473,13 +590,27 @@ class YtFetch():
             ):
                 logger.info(f"Video https://www.youtube.com/watch?v={video_id} removed by llm filter. Skipping.")
                 continue
-            
-            # if everything passes, return the video
+
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            if not self.youtube_video_has_extractable_audio(
+                video_url, truncation_duration_sec
+            ):
+                logger.info(
+                    "Skipping video %s (%r): yt-dlp metadata shows no non-DRM extractable audio",
+                    video_id,
+                    title,
+                )
+                continue
+
+            if not self.video_ids_returned.add(video_id):
+                logger.info(f"Video {video_id} already returned (could not reserve). Skipping.")
+                continue
+
             return {
                         'video_id': video_id,
                         'title': title,
                         'channel_title': channel_title,
-                        'video_url': f"https://www.youtube.com/watch?v={video_id}",
+                        'video_url': video_url,
                         'truncation_duration_sec': truncation_duration_sec
                     }
 
@@ -573,6 +704,15 @@ class YtFetch():
                     'video_url': random_video_url
                 }
                 logger.info(f"Video Title: {video_details['title']}")
+
+                if not self.youtube_video_has_extractable_audio(random_video_url):
+                    logger.info(
+                        "Skipping DRM/non-downloadable playlist pick: %s",
+                        random_video_url,
+                    )
+                    raise ExtractorError(
+                        "No extractable non-DRM audio for playlist candidate",
+                    )
 
                 # Download audio
                 if not output_file:

@@ -42,9 +42,9 @@ class AudioTimeline:
             return audio
         elif isinstance(audio, str):
             if os.path.isfile(audio):
-                with open(audio, 'rb') as file:
-                    return AudioSegment.from_file(file)
-                #return AudioSegment.from_file(audio)
+                # Pass the path string, not an open handle: pydub/ffmpeg need the
+                # filename for container sniffing; anonymous pipes default badly (e.g. WAV → MP3).
+                return AudioSegment.from_file(audio)
             else:
                 raise ValueError(f"Audio file {audio} does not exist.")
 

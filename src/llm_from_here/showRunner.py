@@ -1,4 +1,5 @@
 import importlib
+import json
 import logging
 import os
 import sys
@@ -77,11 +78,34 @@ def load_yaml(yaml_file):
         data = yaml.load(file, Loader=yaml.FullLoader)
     return data
 
+
+def plugin_cache_entry_hash(entry, global_results):
+    """
+    Stable cache key for a plugin YAML entry.
+
+    When ``params.guests_parameter`` is set (e.g. introFromGuestlist), the key
+    includes a fingerprint of that global_results value so a fresh guest
+    dequeue invalidates cached intro/script output without requiring --clear-cache.
+    """
+    base = hashlib.md5(str(entry).encode()).hexdigest()
+    guests_parameter = entry.get("params", {}).get("guests_parameter")
+    if not guests_parameter:
+        return base
+    dep = global_results.get(guests_parameter)
+    if dep is None:
+        return base
+    blob = json.dumps(dep, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.md5(f"{base}:{guests_parameter}:{blob}".encode()).hexdigest()
+
+
 def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
     global global_results
     if clear_cache:
         plugin_cache.clear()
-        logger.info("Cache cleared.")
+        logger.info(
+            "Plugin result cache cleared (%s).",
+            os.path.join(cache_dir, "cache.pickle"),
+        )
 
     data = load_yaml(yaml_file)
 
@@ -121,8 +145,7 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
             _log_context(run_id, plugin_name, "skip", "only_in_prod plugin skipped")
             continue
 
-        # Generate hash of the plugin entry
-        entry_hash = hashlib.md5(str(entry).encode()).hexdigest()
+        entry_hash = plugin_cache_entry_hash(entry, global_results)
 
         # Check if cache is enabled and entry is in cache
         from_cache = False

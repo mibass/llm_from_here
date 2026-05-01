@@ -11,6 +11,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from llm_from_here.plugins.ytfetch import _resolved_deno_executable
 from llm_from_here.supabase_env import get_supabase_service_role_key, get_supabase_url
 
 
@@ -52,6 +53,11 @@ def main() -> None:
         action="store_true",
         help="Require ffmpeg and ffprobe on PATH.",
     )
+    parser.add_argument(
+        "--require-deno",
+        action="store_true",
+        help="Require Deno for yt-dlp YouTube JS/EJS (YT_DLP_DENO, PATH, or ~/.deno/bin/deno).",
+    )
     args = parser.parse_args()
     _load_repo_dotenv()
 
@@ -70,11 +76,16 @@ def main() -> None:
             if shutil.which(bin_name) is None:
                 missing.append(bin_name)
 
+    if args.require_deno and _resolved_deno_executable() is None:
+        missing.append("deno")
+
     if missing:
         print(f"Missing or not on PATH: {', '.join(missing)}", file=sys.stderr)
         sys.exit(1 if args.strict else 0)
 
-    print("Preflight OK: required variables (and optional ffmpeg tools) are present.")
+    print(
+        "Preflight OK: required variables (and optional ffmpeg/deno checks) are present."
+    )
     sys.exit(0)
 
 

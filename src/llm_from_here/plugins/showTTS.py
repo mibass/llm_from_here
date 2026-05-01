@@ -4,9 +4,11 @@ import re
 from scipy.io.wavfile import write as write_wav
 from gtts import gTTS
 from pydub import AudioSegment
+from pydub.exceptions import CouldntDecodeError
 from pydub.silence import detect_nonsilent
 
 import os
+import tempfile
 import dotenv
 import logging
 import openai
@@ -21,6 +23,36 @@ from llm_from_here.llm_env import (
 logger = logging.getLogger(__name__)
 
 dotenv.load_dotenv()
+
+
+def _segment_from_openrouter_speech_file(path: str) -> AudioSegment:
+    """Decode binary returned by ``audio.speech.create`` (OpenRouter / OpenAI-compatible)."""
+    size = os.path.getsize(path)
+    if size < 64:
+        raise ValueError(f"Speech payload too small ({size} bytes)")
+    with open(path, "rb") as f:
+        head = f.read(1024)
+    stripped = head.lstrip()
+    if stripped.startswith((b"{", b"[")):
+        snippet = stripped[:1200].decode("utf-8", errors="replace")
+        raise ValueError(
+            "OpenRouter speech endpoint returned JSON/text instead of audio: " + snippet
+        )
+    if head.startswith(b"RIFF"):
+        return AudioSegment.from_file(path, format="wav")
+    if head.startswith(b"ID3") or (
+        len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0
+    ):
+        return AudioSegment.from_file(path, format="mp3")
+    if head.startswith(b"OggS"):
+        return AudioSegment.from_file(path, format="ogg")
+    try:
+        return AudioSegment.from_file(path)
+    except CouldntDecodeError as err:
+        raise ValueError(
+            "Could not decode OpenRouter speech payload "
+            f"(size={size} bytes, hex_prefix={head[:32].hex()})"
+        ) from err
 
 
 def split_sentences(text):
@@ -86,15 +118,17 @@ class ShowTextToSpeech:
     def _speak_gtts(self, text, output_file):
         # fast version that uses google TTS
         tts = gTTS(text=text, lang="en")
-        temp_mp3_file = "temp.mp3"
-        tts.save(temp_mp3_file)
-
-        # Convert the MP3 file to WAV using pydub
-        audio = AudioSegment.from_mp3(temp_mp3_file)
-        audio.export(output_file, format="wav")
-
-        # Remove the temporary MP3 file
-        os.remove(temp_mp3_file)
+        fd, temp_mp3_file = tempfile.mkstemp(suffix=".mp3", prefix="llmfh_gtts_")
+        os.close(fd)
+        try:
+            tts.save(temp_mp3_file)
+            audio = AudioSegment.from_file(temp_mp3_file, format="mp3")
+            audio.export(output_file, format="wav")
+        finally:
+            try:
+                os.remove(temp_mp3_file)
+            except OSError:
+                pass
         logger.info(f"Successfully generated audio file: {output_file}")
         self.audio_file = output_file
 
@@ -106,19 +140,25 @@ class ShowTextToSpeech:
     def _speak_openrouter_tts(self, text, output_file):
         client = self._get_openrouter_client()
 
+        # OpenRouter validates response_format strictly (typically mp3|pcm only).
         response = client.audio.speech.create(
             model=self.tts_model_name,
             voice=self.tts_voice,
             input=text,
+            response_format="mp3",
         )
 
-        # Save the audio to a file
-        response.stream_to_file(output_file + ".mp3")
-
-        # convert to wav
-        audio = AudioSegment.from_mp3(output_file + ".mp3")
-        audio.export(output_file, format="wav")
-        os.remove(output_file + ".mp3")
+        fd, tmp_audio = tempfile.mkstemp(suffix=".mp3", prefix="llmfh_openrouter_tts_")
+        os.close(fd)
+        try:
+            response.stream_to_file(tmp_audio)
+            audio = _segment_from_openrouter_speech_file(tmp_audio)
+            audio.export(output_file, format="wav")
+        finally:
+            try:
+                os.remove(tmp_audio)
+            except OSError:
+                pass
 
         logger.info(f"Successfully generated audio file: {output_file}")
         self.audio_file = output_file

@@ -1,3 +1,6 @@
+# Same SupaSet as plugins.intro (`guests_set`): prune rows older than N days (0 = no pruning).
+guests_used_autoexpire_days: 365
+
 guest_categories:
   - name: music
     queue_size: 100

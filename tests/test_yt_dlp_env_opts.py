@@ -7,6 +7,7 @@ import json
 import pytest
 
 from llm_from_here.plugins.ytfetch import (
+    YOUTUBE_AUDIO_FORMAT_SPEC,
     build_yt_dlp_download_attempt_opts,
     merge_yt_dlp_env_into,
     _yt_dlp_fallback_overlays,
@@ -22,6 +23,7 @@ _YT_DLP_ENV_KEYS = (
     "YT_DLP_SOCKET_TIMEOUT",
     "YT_DLP_VERBOSE",
     "YT_DLP_DISABLE_FALLBACK",
+    "YT_DLP_FORMAT",
 )
 
 
@@ -61,6 +63,13 @@ def test_compat_opts(monkeypatch):
     opts: dict = {}
     merge_yt_dlp_env_into(opts)
     assert opts["compat_opts"] == {"2025", "2024"}
+
+
+def test_format_override(monkeypatch):
+    monkeypatch.setenv("YT_DLP_FORMAT", "bestaudio/worstaudio")
+    opts: dict = {"format": YOUTUBE_AUDIO_FORMAT_SPEC}
+    merge_yt_dlp_env_into(opts)
+    assert opts["format"] == "bestaudio/worstaudio"
 
 
 def test_verbose(monkeypatch):
@@ -113,7 +122,15 @@ def test_build_attempts_fallback_chain_length(monkeypatch):
 
 
 def test_build_attempts_fallback_keeps_base_keys(monkeypatch):
-    base = {"quiet": True, "format": "bestaudio"}
+    base = {"quiet": True, "format": YOUTUBE_AUDIO_FORMAT_SPEC}
     attempts = build_yt_dlp_download_attempt_opts(base)
     assert attempts[-1]["quiet"] is True
-    assert attempts[-1]["format"] == "bestaudio"
+    assert attempts[-1]["format"] == YOUTUBE_AUDIO_FORMAT_SPEC
+
+
+def test_build_attempts_single_when_explicit_format(monkeypatch):
+    monkeypatch.setenv("YT_DLP_FORMAT", "bestaudio")
+    base = {"quiet": True}
+    merge_yt_dlp_env_into(base)
+    attempts = build_yt_dlp_download_attempt_opts(base)
+    assert len(attempts) == 1
