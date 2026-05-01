@@ -42,6 +42,11 @@ jobs:
 
       - run: uv sync --extra dev
 
+      # yt-dlp YouTube extractor uses Deno for JS challenges (see yt-dlp wiki / EJS).
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: lts
+
       # Optional: YT_DLP_COOKIES_B64 secret (secrets.* cannot be used in step `if:`).
       - name: Decode yt-dlp cookies (optional)
         env:

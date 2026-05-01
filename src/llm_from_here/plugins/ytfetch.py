@@ -309,7 +309,9 @@ class YtFetch():
                 'preferredquality': '192',
             }],
             'outtmpl': output_file,
-            'nocheckcertificate': True, 
+            'nocheckcertificate': True,
+            # Fetch signed hashes/player JS helpers from GitHub when needed (CI-friendly).
+            'remote_components': {'ejs:github'},
             'quiet': True,
             'noprogress': True,
             'postprocessor_args': ['-ac', '2'], #force 2-channels
