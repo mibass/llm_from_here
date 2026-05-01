@@ -1,8 +1,12 @@
+import copy
+import glob
+import json
 import os
 import googleapiclient.discovery
 import googleapiclient.errors
 # import youtube_dl
 import yt_dlp as youtube_dl
+from yt_dlp.utils import DownloadError, ExtractorError, YoutubeDLError
 import time
 from isodate import parse_duration
 import random
@@ -19,6 +23,200 @@ from llm_from_here.schemas.llm_outputs import LlmFilterResponse
 import logging
 logger = logging.getLogger(__name__)
 
+
+def _truthy_env(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _deep_merge_dict(base: dict, overlay: dict) -> dict:
+    out = dict(base)
+    for key, val in overlay.items():
+        if (
+            key in out
+            and isinstance(out[key], dict)
+            and isinstance(val, dict)
+        ):
+            out[key] = _deep_merge_dict(out[key], val)
+        else:
+            out[key] = val
+    return out
+
+
+def merge_yt_dlp_env_into(ydl_opts: dict) -> None:
+    """
+    Apply optional yt-dlp overrides from the environment (GitHub Actions iteration knobs).
+
+    See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp
+
+    YT_DLP_COOKIE_FILE — path to Netscape cookies.txt (write from Actions secret if needed).
+    YT_DLP_PLAYER_CLIENT — comma-separated list → extractor_args youtube player_client
+    YT_DLP_EXTRACTOR_ARGS_JSON — JSON object merged into extractor_args (overrides CSV keys).
+    YT_DLP_COMPAT_OPTIONS — comma-separated compat_opts (e.g. 2025).
+    YT_DLP_IMPERSONATE — passed to ImpersonateTarget.from_str (requires curl-cffi).
+    YT_DLP_USER_AGENT — optional HTTP User-Agent (skipped if YT_DLP_IMPERSONATE is set).
+    YT_DLP_SOCKET_TIMEOUT — float seconds for socket_timeout.
+    YT_DLP_VERBOSE — if truthy, forces verbose logging and disables quiet/noprogress.
+    YT_DLP_DISABLE_FALLBACK — single attempt only (disables automatic no-cookie preset rotation).
+    """
+    extractor_args: dict = {}
+
+    cookie_file = os.getenv("YT_DLP_COOKIE_FILE", "").strip()
+    if cookie_file:
+        if os.path.isfile(cookie_file):
+            ydl_opts["cookiefile"] = cookie_file
+        else:
+            logger.warning(
+                "YT_DLP_COOKIE_FILE is set but file is missing: %s",
+                cookie_file,
+            )
+
+    raw_clients = os.getenv("YT_DLP_PLAYER_CLIENT", "").strip()
+    if raw_clients:
+        clients = [x.strip() for x in raw_clients.split(",") if x.strip()]
+        if clients:
+            extractor_args.setdefault("youtube", {})["player_client"] = clients
+
+    json_blob = os.getenv("YT_DLP_EXTRACTOR_ARGS_JSON", "").strip()
+    if json_blob:
+        try:
+            parsed = json.loads(json_blob)
+            if isinstance(parsed, dict):
+                extractor_args = _deep_merge_dict(extractor_args, parsed)
+            else:
+                logger.warning(
+                    "YT_DLP_EXTRACTOR_ARGS_JSON must be a JSON object; ignoring",
+                )
+        except json.JSONDecodeError as err:
+            logger.warning(
+                "YT_DLP_EXTRACTOR_ARGS_JSON is not valid JSON (%s); ignoring",
+                err,
+            )
+
+    if extractor_args:
+        existing = ydl_opts.get("extractor_args") or {}
+        if not isinstance(existing, dict):
+            existing = {}
+        ydl_opts["extractor_args"] = _deep_merge_dict(existing, extractor_args)
+
+    compat_raw = os.getenv("YT_DLP_COMPAT_OPTIONS", "").strip()
+    if compat_raw:
+        parts = {x.strip() for x in compat_raw.split(",") if x.strip()}
+        if parts:
+            prev = ydl_opts.get("compat_opts") or set()
+            ydl_opts["compat_opts"] = set(prev) | parts
+
+    impersonate_raw = os.getenv("YT_DLP_IMPERSONATE", "").strip()
+    if impersonate_raw:
+        from yt_dlp.networking.impersonate import ImpersonateTarget
+
+        ydl_opts["impersonate"] = ImpersonateTarget.from_str(
+            impersonate_raw.lower(),
+        )
+
+    if not impersonate_raw:
+        ua = os.getenv("YT_DLP_USER_AGENT", "").strip()
+        if ua:
+            headers = dict(ydl_opts.get("http_headers") or {})
+            headers["User-Agent"] = ua
+            ydl_opts["http_headers"] = headers
+
+    timeout_raw = os.getenv("YT_DLP_SOCKET_TIMEOUT", "").strip()
+    if timeout_raw:
+        try:
+            ydl_opts["socket_timeout"] = float(timeout_raw)
+        except ValueError:
+            logger.warning(
+                "YT_DLP_SOCKET_TIMEOUT must be a float; got %r",
+                timeout_raw,
+            )
+
+    if _truthy_env("YT_DLP_VERBOSE"):
+        ydl_opts["quiet"] = False
+        ydl_opts["noprogress"] = False
+        ydl_opts["verbose"] = True
+
+
+def _explicit_yt_dlp_strategy_env() -> bool:
+    """True when the operator set tuning env vars (skip automatic preset rotation)."""
+    return bool(
+        os.getenv("YT_DLP_COOKIE_FILE", "").strip()
+        or os.getenv("YT_DLP_IMPERSONATE", "").strip()
+        or os.getenv("YT_DLP_PLAYER_CLIENT", "").strip()
+        or os.getenv("YT_DLP_EXTRACTOR_ARGS_JSON", "").strip()
+        or os.getenv("YT_DLP_COMPAT_OPTIONS", "").strip()
+        or os.getenv("YT_DLP_USER_AGENT", "").strip()
+    )
+
+
+def _merge_ydl_overlay(base: dict, overlay: dict) -> dict:
+    out = copy.deepcopy(base)
+    for key, val in overlay.items():
+        if key == "extractor_args":
+            out[key] = _deep_merge_dict(out.get(key) or {}, val)
+        elif key == "compat_opts":
+            prev = out.get("compat_opts") or set()
+            out[key] = set(prev) | set(val)
+        else:
+            out[key] = val
+    return out
+
+
+def _yt_dlp_fallback_overlays() -> tuple[dict, ...]:
+    """Preset rotation without cookies (TLS fingerprint + YouTube client paths).
+
+    Stronger presets run first so datacenter IPs (e.g. GitHub-hosted runners) fail fast past vanilla `{}`.
+    """
+    from yt_dlp.networking.impersonate import ImpersonateTarget
+
+    I = ImpersonateTarget.from_str
+    return (
+        {
+            "impersonate": I("chrome-136"),
+            "extractor_args": {"youtube": {"player_client": ["tv"]}},
+        },
+        {
+            "impersonate": I("chrome-136"),
+            "extractor_args": {"youtube": {"player_client": ["android"]}},
+        },
+        {"impersonate": I("chrome-136")},
+        {
+            "impersonate": I("chrome-131:android-12"),
+            "extractor_args": {"youtube": {"player_client": ["android"]}},
+        },
+        {
+            "impersonate": I("chrome-99:android-12"),
+            "extractor_args": {"youtube": {"player_client": ["android"]}},
+        },
+        {
+            "impersonate": I("edge-101:windows-10"),
+            "extractor_args": {"youtube": {"player_client": ["web"]}},
+        },
+        {"impersonate": I("firefox-135:macos-14")},
+        {},
+    )
+
+
+def build_yt_dlp_download_attempt_opts(base_opts: dict) -> list[dict]:
+    """
+    Build yt-dlp option dicts to try in order.
+
+    When YT_DLP_DISABLE_FALLBACK is set, or when cookie / impersonate / extractor tuning
+    env vars are set, returns a single attempt (operator-controlled).
+
+    Otherwise returns default presets (no cookies).
+    """
+    if _truthy_env("YT_DLP_DISABLE_FALLBACK") or _explicit_yt_dlp_strategy_env():
+        return [copy.deepcopy(base_opts)]
+    return [_merge_ydl_overlay(base_opts, o) for o in _yt_dlp_fallback_overlays()]
+
+
+def _scrub_partial_downloads(output_stem: str) -> None:
+    """Remove partial outputs before the next yt-dlp attempt."""
+    for match in glob.glob(glob.escape(output_stem) + "*"):
+        try:
+            os.remove(match)
+        except OSError:
+            pass
 
 
 class YtFetch():
@@ -117,17 +315,41 @@ class YtFetch():
             'postprocessor_args': ['-ac', '2'], #force 2-channels
             # 'verbose': True
         }
+        merge_yt_dlp_env_into(ydl_opts)
         if max_duration:
             logger.info(f"Setting max duration to {max_duration}")
             #def download_ranges_callback(info_dict, ydl):
             #    return [ {'start_time': 0, 'end_time': max_duration, 'title': 'Section 1', 'index': 1}]
             #ydl_opts['download_ranges'] = download_ranges_callback
             ydl_opts['postprocessor_args'].extend(['-t', str(max_duration)])
-            
 
-        
-        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([video_url])
+        attempts = build_yt_dlp_download_attempt_opts(ydl_opts)
+        last_err: BaseException | None = None
+        for idx, attempt_opts in enumerate(attempts):
+            if idx:
+                _scrub_partial_downloads(output_file)
+            try:
+                with youtube_dl.YoutubeDL(attempt_opts) as ydl:
+                    ydl.download([video_url])
+                if idx:
+                    logger.info(
+                        "yt-dlp download succeeded using fallback preset %s/%s",
+                        idx + 1,
+                        len(attempts),
+                    )
+                break
+            except (DownloadError, ExtractorError, YoutubeDLError, OSError) as err:
+                last_err = err
+                logger.warning(
+                    "yt-dlp attempt %s/%s failed: %s",
+                    idx + 1,
+                    len(attempts),
+                    err,
+                )
+        else:
+            if last_err is None:
+                raise RuntimeError("yt-dlp: no download attempts were made")
+            raise last_err
         
         #confirm file exists and is not empty
         if not os.path.exists(output_file + ".wav"):

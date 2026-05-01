@@ -42,6 +42,16 @@ jobs:
 
       - run: uv sync --extra dev
 
+      # Optional: YT_DLP_COOKIES_B64 secret + Variables YT_DLP_* — see release_episode.yml.
+      - name: Decode yt-dlp cookies (optional)
+        if: ${{ secrets.YT_DLP_COOKIES_B64 != '' }}
+        env:
+          YT_DLP_COOKIES_B64: ${{ secrets.YT_DLP_COOKIES_B64 }}
+        run: |
+          printf '%s' "$YT_DLP_COOKIES_B64" | base64 -d > "$RUNNER_TEMP/yt-dlp-cookies.txt"
+          chmod 600 "$RUNNER_TEMP/yt-dlp-cookies.txt"
+          echo "YT_DLP_COOKIE_FILE=$RUNNER_TEMP/yt-dlp-cookies.txt" >> "$GITHUB_ENV"
+
       - name: Run tests before release
         run: uv run pytest tests/test*.py
 
@@ -57,7 +67,13 @@ jobs:
             PODBEAN_CLIENT_SECRET: ${{ secrets.PODBEAN_CLIENT_SECRET }}
             SUPASET_URL: ${{ secrets.SUPASET_URL }}
             SUPASET_KEY: ${{ secrets.SUPASET_KEY }}
-            
+            YT_DLP_PLAYER_CLIENT: ${{ vars.YT_DLP_PLAYER_CLIENT }}
+            YT_DLP_IMPERSONATE: ${{ vars.YT_DLP_IMPERSONATE }}
+            YT_DLP_COMPAT_OPTIONS: ${{ vars.YT_DLP_COMPAT_OPTIONS }}
+            YT_DLP_EXTRACTOR_ARGS_JSON: ${{ vars.YT_DLP_EXTRACTOR_ARGS_JSON }}
+            YT_DLP_SOCKET_TIMEOUT: ${{ vars.YT_DLP_SOCKET_TIMEOUT }}
+            YT_DLP_VERBOSE: ${{ vars.YT_DLP_VERBOSE }}
+
       - name: Upload log file
         if: always()
         uses: actions/upload-artifact@v4
