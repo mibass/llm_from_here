@@ -15,7 +15,6 @@ dependencies = [
   "google-api-python-client",
   "openai>=1.2",
   "jsonschema",
-  "sqlitedict",
   "isodate",
   "pathvalidate",
   "fuzzywuzzy",

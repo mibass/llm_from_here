@@ -119,11 +119,10 @@ uv run mypy src tests
 uv run pyright
 uv run pytest tests/test*.py
 uv run pip-audit \
-  --ignore-vuln PYSEC-2022-42969 \
-  --ignore-vuln CVE-2024-35515
+  --ignore-vuln PYSEC-2022-42969
 ```
 
-Those ignores track transitive gaps (`py` / `sqlitedict`); remove them once upstream publishes fixes you can adopt.
+That ignore tracks a transitive gap in `py`; remove it once upstream publishes a fix you can adopt.
 
 Default CI only runs fast unit tests under `tests/test*.py`. **Integration** tests (live APIs) live in `[tests/integration/](tests/integration/)` and are marked `integration`; run them explicitly when you have real keys and quota:
 
