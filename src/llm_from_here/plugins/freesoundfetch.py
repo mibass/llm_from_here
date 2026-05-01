@@ -24,8 +24,8 @@ class FreeSoundFetch:
         if filter_params is None:
             filter_params = {}
 
-        # Perform the search
-        results = self.client.text_search(query=query, sort="rating_desc", **filter_params)
+        # Perform the search (freesound package uses search(), not legacy text_search)
+        results = self.client.search(query=query, sort="rating_desc", **filter_params)
         #print(results)
         
         
