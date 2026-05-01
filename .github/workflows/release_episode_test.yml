@@ -42,15 +42,16 @@ jobs:
 
       - run: uv sync --extra dev
 
-      # Optional: YT_DLP_COOKIES_B64 secret + Variables YT_DLP_* — see release_episode.yml.
+      # Optional: YT_DLP_COOKIES_B64 secret (secrets.* cannot be used in step `if:`).
       - name: Decode yt-dlp cookies (optional)
-        if: ${{ secrets.YT_DLP_COOKIES_B64 != '' }}
         env:
           YT_DLP_COOKIES_B64: ${{ secrets.YT_DLP_COOKIES_B64 }}
         run: |
-          printf '%s' "$YT_DLP_COOKIES_B64" | base64 -d > "$RUNNER_TEMP/yt-dlp-cookies.txt"
-          chmod 600 "$RUNNER_TEMP/yt-dlp-cookies.txt"
-          echo "YT_DLP_COOKIE_FILE=$RUNNER_TEMP/yt-dlp-cookies.txt" >> "$GITHUB_ENV"
+          if [ -n "${YT_DLP_COOKIES_B64:-}" ]; then
+            printf '%s' "$YT_DLP_COOKIES_B64" | base64 -d > "$RUNNER_TEMP/yt-dlp-cookies.txt"
+            chmod 600 "$RUNNER_TEMP/yt-dlp-cookies.txt"
+            echo "YT_DLP_COOKIE_FILE=$RUNNER_TEMP/yt-dlp-cookies.txt" >> "$GITHUB_ENV"
+          fi
 
       - name: Run tests before release
         run: uv run pytest tests/test*.py
