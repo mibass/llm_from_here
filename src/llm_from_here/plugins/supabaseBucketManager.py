@@ -4,6 +4,9 @@ import dotenv
 import os
 import logging
 import tempfile
+
+from llm_from_here.supabase_env import get_supabase_service_role_key, get_supabase_url
+
 dotenv.load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -15,15 +18,19 @@ class SupabaseBucketManager:
         self.global_results = global_results
         self.plugin_instance_name = plugin_instance_name
         
-        # Initialize with your supabase url and supabase key
-        url = os.getenv('SUPASET_URL')
-        key = os.getenv('SUPASET_KEY')
-        
+        url = get_supabase_url()
+        key = get_supabase_service_role_key()
         self.supabase = supabase.create_client(url, key)
         
-        self.bucket_name = self.params.get('bucket_name')
+        # SUPABASE_STORAGE_BUCKET overrides YAML so .env matches the real bucket name.
+        self.bucket_name = (
+            os.getenv("SUPABASE_STORAGE_BUCKET", "").strip()
+            or self.params.get("bucket_name")
+        )
         if not self.bucket_name:
-            raise Exception('bucket_name is not defined in params')
+            raise Exception(
+                "bucket_name missing: set SUPABASE_STORAGE_BUCKET or params.bucket_name"
+            )
         
         self.file_parameter = self.params.get('file_parameter')
         self.file_to_upload = self.global_results.get(self.file_parameter)

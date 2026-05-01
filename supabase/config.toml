@@ -1,0 +1,38 @@
+# Supabase CLI config for linking a hosted project and running `supabase db push`.
+# https://supabase.com/docs/guides/cli/config
+#
+# `project_id` is updated when you run `supabase link --project-ref <ref>` from the repo root.
+
+project_id = "local-dev-placeholder"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+port = 54324
+
+[storage]
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["https://127.0.0.1:3000"]
+jwt_expiry = 3600
+enable_signup = false
+
+[auth.email]
+enable_signup = false
+enable_confirmations = false

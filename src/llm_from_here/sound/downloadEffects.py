@@ -59,7 +59,7 @@ class DownloadEffects:
         url = self.download_url.format(id)
         print(f"Downloading file from: {url}")
         # Download the file
-        r = requests.get(url, stream=True)
+        r = requests.get(url, stream=True, timeout=60)
         
         if r.status_code != 200:
             print(f"Error: received status code {r.status_code} when trying to download file.")

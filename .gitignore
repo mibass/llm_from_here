@@ -1,5 +1,8 @@
 #custom
 .DS_STORE
+
+# Supabase CLI local linked-project cache (never commit)
+supabase/.temp/
 .vscode
 *.ipynb
 *.mp3

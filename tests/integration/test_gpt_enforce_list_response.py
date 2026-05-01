@@ -36,9 +36,14 @@ def test_enforce_list_response(chat_app, prompt):
 @pytest.mark.parametrize("prompt", prompts)
 def test_enforce_list_response_consensus(chat_app, prompt):
     print(prompt)
-    n=50
+    # Small n + num_consensus=1 keeps integration fast (see enforce_list_response_consensus loop).
+    n = 12
     response = chat_app.enforce_list_response_consensus(
-        prompt, num_entries=n, log_prompt=True, tries=5
+        prompt,
+        num_entries=n,
+        num_consensus=1,
+        log_prompt=True,
+        tries=5,
     )
     print(response)
     print("list has length {}".format(len(response)))

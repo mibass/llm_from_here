@@ -125,6 +125,8 @@ class TestSegmentsToTimeline(unittest.TestCase):
 
     @patch('llm_from_here.plugins.audioTimeline.AudioTimeline')
     def test_execute(self, mock_audio_timeline):
+        if shutil.which("ffprobe") is None:
+            self.skipTest("ffprobe is required for this test")
         # Mock the audio timeline instance and its methods
         mock_timeline_instance = self.stt.timeline
         mock_audio_timeline.return_value = mock_timeline_instance

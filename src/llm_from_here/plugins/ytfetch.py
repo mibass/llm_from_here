@@ -14,6 +14,7 @@ from jinja2 import Template
 from llm_from_here.common import is_production_prefix
 import ytmusicapi
 from llm_from_here.common import get_nested_value
+from llm_from_here.schemas.llm_outputs import LlmFilterResponse
 
 import logging
 logger = logging.getLogger(__name__)
@@ -22,13 +23,24 @@ logger = logging.getLogger(__name__)
 
 class YtFetch():
     def __init__(self, **kwargs):
+        api_key = os.getenv('YT_API_KEY')
+        if not api_key:
+            raise ValueError("Missing required environment variable: YT_API_KEY")
         self.youtube = googleapiclient.discovery.build("youtube", "v3", 
-                                                       developerKey=os.environ['YT_API_KEY'])
+                                                       developerKey=api_key)
         self.ytmusic = ytmusicapi.YTMusic()
         self.last_response = None
         supaset_name = f'{is_production_prefix()}ytfetch_video_ids_returned'
         self.video_ids_returned = SupaSet(supaset_name,
                                           autoexpire = kwargs.get('video_ids_supaset_autoexpire_days', 180))
+
+    @retry((googleapiclient.errors.HttpError,), tries=3, delay=2)
+    def _execute_with_retry(self, request, operation_name):
+        try:
+            return request.execute()
+        except googleapiclient.errors.HttpError as error:
+            logger.warning(f"{operation_name} failed, retrying: {error}")
+            raise
         
     def finalize(self):
         logger.info("Finalizing YtFetch")
@@ -50,7 +62,7 @@ class YtFetch():
             safeSearch="strict",
             order=orderby #rating, relevance, viewCount, date, title, videoCount
         )
-        response = request.execute()
+        response = self._execute_with_retry(request, "youtube_search")
         self.last_response = response
         videos = []
         for item in response['items']:
@@ -147,18 +159,18 @@ class YtFetch():
             duration = parse_duration(iso_duration)
             return duration.total_seconds()
 
-    def llm_filter_title(self, chat_app, llm_filter_prompt, llm_filter_js, title, description, channel_title):
+    def llm_filter_title(self, chat_app, llm_filter_prompt, title, description, channel_title):
         """
         Filter videos based on title, description, and channel title using a call to GPT.
         """
-        if llm_filter_prompt and llm_filter_js:
+        if llm_filter_prompt:
             template = Template(llm_filter_prompt)
             logger.info(f"LLM Checking video title {title}")
             prompt = template.render(title=title, description=description, channel_title=channel_title)
             logger.info(f"Prompt: {prompt}")
-            response = chat_app.enforce_json_response(prompt, llm_filter_js, log_prompt=True)
+            response = chat_app.run_structured(prompt, LlmFilterResponse, log_prompt=True)
             logger.info(f"Response: {response}")
-            if response['answer'] == 'no':
+            if response.get("answer", "").lower() == "no":
                 return True
         return False
 
@@ -168,7 +180,6 @@ class YtFetch():
         description_filters = kwargs.get('description_filters')
         orderby = kwargs.get('orderby', 'relevance')
         llm_filter_prompt = kwargs.get('llm_filter_prompt')
-        llm_filter_js = kwargs.get('llm_filter_js')
         chat_app = kwargs.get('chat_app')
         min_duration = kwargs.get('duration_min_sec')
         max_duration = kwargs.get('duration_max_sec')
@@ -210,7 +221,7 @@ class YtFetch():
                     part="snippet, contentDetails",
                     id=video_id
                 )
-                video_response = video_request.execute()
+                video_response = self._execute_with_retry(video_request, "youtube_video_details")
 
                 # Get the video duration and description
                 duration = video_response['items'][0]['contentDetails']['duration']
@@ -233,8 +244,9 @@ class YtFetch():
                     continue
             
             #llm filter for title and description and channel_title
-            if self.llm_filter_title(chat_app, llm_filter_prompt, llm_filter_js, 
-                                     title, full_description, channel_title):
+            if self.llm_filter_title(
+                chat_app, llm_filter_prompt, title, full_description, channel_title
+            ):
                 logger.info(f"Video https://www.youtube.com/watch?v={video_id} removed by llm filter. Skipping.")
                 continue
             
@@ -297,7 +309,7 @@ class YtFetch():
             playlistId=playlist_id,
             fields="items(snippet(resourceId(videoId)))"
         )
-        response = request.execute()
+        response = self._execute_with_retry(request, "youtube_playlist_items")
         self.last_response = response
         return [item['snippet']['resourceId']['videoId'] for item in response['items']]
 
@@ -326,7 +338,7 @@ class YtFetch():
                     part="snippet",
                     id=random_video_id
                 )
-                video_response = video_request.execute()
+                video_response = self._execute_with_retry(video_request, "youtube_video_metadata")
 
                 assert 'items' in video_response and video_response['items'], 'No video details found'
                 video_item = video_response['items'][0]
