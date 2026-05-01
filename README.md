@@ -53,7 +53,7 @@ Use a dedicated env if you like; activate it before `uv run pytest` / ShowRunner
 
 ### Preflight (before a full ShowRunner / release-style run)
 
-Check that API keys and binaries are present (fails if anything required is missing):
+Check that API keys and binaries are present (fails if anything required is missing). Preflight loads **`.env`** from the repo root, same as ShowRunner.
 
 ```bash
 uv run python scripts/preflight_env.py --strict --require-ffmpeg
@@ -86,7 +86,7 @@ Optional:
 - `OPENROUTER_MODEL` (OpenRouter slug, e.g. `openai/gpt-4o-mini`)
 - `OPENROUTER_TTS_MODEL`, `OPENROUTER_TTS_VOICE` for slow TTS
 - `LLMFH_STRUCTURED_OUTPUT_MODE=native|tool` (pydantic-ai structured output style)
-- `LLMFH_OPENROUTER_FREE_MODE=1` for zero-cost chat (`openrouter/free` when `OPENROUTER_MODEL` unset) and gTTS for slow TTS
+- `LLMFH_OPENROUTER_FREE_MODE=1` for zero-cost chat (`openrouter/free`; ignores paid `OPENROUTER_MODEL` from `.env`) and gTTS for slow TTS — optional `LLMFH_OPENROUTER_FREE_CHAT_MODEL` to pick another slug
 
 See [docs/llm_schema_inventory.md](docs/llm_schema_inventory.md) for structured-output model mapping.
 
@@ -104,6 +104,8 @@ Optional flags:
 --clear-cache: Use this flag to clear the plugin cache before execution.
 --output-dir: Use this flag to specify the directory where outputs should be stored. Default is ./outputs.
 ```
+
+Set `LLMFH_SHOWRUNNER_LOG_STDOUT=1` to mirror `showRunner.log` lines to stderr (helpful when piping output).
 
 Make sure to provide the path to your YAML configuration file. The script will execute plugins defined in the YAML file, store results in the output folder, and log the execution details.
 
@@ -128,4 +130,6 @@ Default CI only runs fast unit tests under `tests/test*.py`. **Integration** tes
 ```bash
 uv run pytest tests/integration -m integration
 ```
+
+Those tests default **OpenRouter** to free-tier routing (`LLMFH_OPENROUTER_FREE_MODE=1`, chat uses `openrouter/free`). You still need `OPENROUTER_API_KEY`. To run integration against a paid slug from your `.env`, set `LLMFH_INTEGRATION_USE_FREE_OPENROUTER=0`.
 

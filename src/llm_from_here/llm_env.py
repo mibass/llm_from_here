@@ -30,12 +30,19 @@ def require_openrouter_api_key() -> str:
 
 
 def get_openrouter_chat_model() -> str:
-    """Chat model slug. Explicit OPENROUTER_MODEL always wins."""
+    """Chat model slug.
+
+    In **free mode**, chat always uses ``openrouter/free`` so a paid ``OPENROUTER_MODEL``
+    from ``.env`` does not override (dotenv would otherwise undo shell ``unset``).
+    Set ``LLMFH_OPENROUTER_FREE_CHAT_MODEL`` to pick another free-tier slug explicitly.
+    """
+    if is_openrouter_free_mode():
+        return (
+            os.getenv("LLMFH_OPENROUTER_FREE_CHAT_MODEL", "").strip() or "openrouter/free"
+        )
     explicit = os.getenv("OPENROUTER_MODEL", "").strip()
     if explicit:
         return explicit
-    if is_openrouter_free_mode():
-        return "openrouter/free"
     return os.getenv("OPENROUTER_MODEL_DEFAULT", "openai/gpt-4o-mini").strip() or "openai/gpt-4o-mini"
 
 
@@ -88,6 +95,7 @@ def build_openrouter_client() -> openai.OpenAI:
 def log_free_mode_startup(logger: Any, resolved_chat_model: str) -> None:
     if is_openrouter_free_mode():
         logger.info(
-            "LLMFH_OPENROUTER_FREE_MODE=on: chat_model=%s (OPENROUTER_MODEL unset uses openrouter/free)",
+            "LLMFH_OPENROUTER_FREE_MODE=on: chat_model=%s (paid OPENROUTER_MODEL from .env is ignored; "
+            "override with LLMFH_OPENROUTER_FREE_CHAT_MODEL if needed)",
             resolved_chat_model,
         )

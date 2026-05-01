@@ -8,7 +8,7 @@ from collections import Counter
 from typing import Any, cast
 
 import yaml
-from pydantic import BaseModel, RootModel
+from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessagesTypeAdapter
 from pydantic_ai.models.openrouter import OpenRouterModel
@@ -127,15 +127,6 @@ class LlmSession:
         return model_type
 
     def _dump_structured(self, out: Any) -> Any:
-        if isinstance(out, RootModel):
-            root = out.root
-            if isinstance(root, list):
-                return [
-                    item.model_dump() if isinstance(item, BaseModel) else item for item in root
-                ]
-            if isinstance(root, BaseModel):
-                return root.model_dump()
-            return root
         if isinstance(out, BaseModel):
             return out.model_dump()
         return out
@@ -205,6 +196,12 @@ class LlmSession:
                 if not match:
                     raise ValueError("No response was found between triple single quotes.")
                 extracted = match.group(1).strip()
+                # Markdown fences often include a language tag line (``yaml``) that breaks YAML parsing.
+                low = extracted.lower()
+                if low.startswith("yaml"):
+                    extracted = extracted[4:].lstrip("\n").strip()
+                elif low.startswith("yml"):
+                    extracted = extracted[3:].lstrip("\n").strip()
                 try:
                     as_list = yaml.safe_load(extracted)
                 except yaml.YAMLError:

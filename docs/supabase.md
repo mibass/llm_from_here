@@ -35,7 +35,7 @@ Legacy aliases (still supported): **`SUPASET_URL`**, **`SUPASET_KEY`**, and **`S
 | **`SUPABASE_REGION`** | Create mode (e.g. `us-east-1`) |
 | **`SUPABASE_DB_PASSWORD`** | Create mode: Postgres password for the **new** project (stored by Supabase; optional in `.env` after bootstrap unless you need direct DB access) |
 | **`SUPABASE_PROJECT_REF`** | **Link-only** mode: skips `projects create` |
-| **`SUPABASE_STORAGE_BUCKET`** | Optional; default `llmfh` |
+| **`SUPABASE_STORAGE_BUCKET`** | Optional; when set, overrides `bucket_name` in YAML (e.g. configv3 `llmfh`) |
 
 Shell exports override `.env` (python-dotenv `override=False`), matching ShowRunner behavior.
 
@@ -104,4 +104,4 @@ uv run python scripts/preflight_env.py --strict --skip-podbean
 uv run pytest tests/integration -m integration
 ```
 
-(Integration tests require live credentials.)
+(Integration tests require live credentials. OpenRouter-backed tests default to free-tier chat routing unless `LLMFH_INTEGRATION_USE_FREE_OPENROUTER=0`.)

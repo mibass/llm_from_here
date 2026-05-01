@@ -1,13 +1,37 @@
-import pytest
 import logging
+import os
 import sys
-from pydub import AudioSegment
+
 import numpy as np
+import pytest
+from pydub import AudioSegment
 
 pytestmark = pytest.mark.integration
 
 # Configure logging to output to stdout
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+
+
+def _truthy(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _integration_openrouter_use_free_models():
+    """
+    After test modules run dotenv.load_dotenv(), prefer OpenRouter free-tier chat.
+
+    Sets LLMFH_OPENROUTER_FREE_MODE so unresolved chat model becomes openrouter/free,
+    structured output defaults to tool mode, and slow TTS uses gTTS.
+
+    Opt out with LLMFH_INTEGRATION_USE_FREE_OPENROUTER=0 to keep .env OPENROUTER_* as-is.
+    """
+    if not _truthy("LLMFH_INTEGRATION_USE_FREE_OPENROUTER", "1"):
+        yield
+        return
+    os.environ["LLMFH_OPENROUTER_FREE_MODE"] = "1"
+    os.environ.pop("OPENROUTER_MODEL", None)
+    yield
 
 
 @pytest.fixture

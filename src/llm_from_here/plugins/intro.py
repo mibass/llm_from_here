@@ -97,16 +97,18 @@ class Intro:
         self.script = self.chat_app.chat(script_prompt)
         logger.info(f"Script: {self.script}")
         
-        #json script with enforced json
-        self.intro = self.chat_app.run_structured(
+        # json script with enforced json (object root {"lines": [...]} for pydantic-ai)
+        intro_obj = self.chat_app.run_structured(
             params["json_script_prompt"], IntroScriptLines, log_prompt=True
         )
+        self.intro = intro_obj["lines"]
         logger.info(f"Intro json: {self.intro}")
 
-        # json guests
-        self.guests = self.chat_app.run_structured(
+        # json guests (object root {"guests": [...]})
+        guests_obj = self.chat_app.run_structured(
             params["json_guest_prompt"], GuestListJson, log_prompt=True
         )
+        self.guests = guests_obj["guests"]
         logger.info(f"Guests json: {self.guests}")
 
         self.normalize_guest_categories()

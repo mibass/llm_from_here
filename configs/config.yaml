@@ -29,6 +29,8 @@ plugins:
         There should be only one music cue, and it should be first.
         Applause breaks should get their own entry with speaker name Audience and dialog of [APPLAUSE duration x], for example [APPLAUSE duration 10].
         The only valid values for speaker are Music, Chris Thile, and Audience.
+        Respond with a JSON object that has a single key "lines" whose value is an array of objects,
+        each object having string fields "speaker" and "dialog" only.
 
       json_guest_prompt: >
         Now return those guests in structured form.
@@ -38,6 +40,8 @@ plugins:
         The total number of entries in the list should be between 7 and 10.
         A guest_name should have the same guest_category each time it is listed.
         The only possible guest_categories are: Music, Comedy, Author, Actor, Improv.
+        Respond with a JSON object that has a single key "guests" whose value is an array of objects,
+        each object having string fields "guest_category" and "guest_name".
 
       extra_prompts:
         - name: story

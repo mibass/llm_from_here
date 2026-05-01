@@ -7,8 +7,17 @@ import argparse
 import os
 import shutil
 import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from llm_from_here.supabase_env import get_supabase_service_role_key, get_supabase_url
+
+
+def _load_repo_dotenv() -> None:
+    """Match ShowRunner/plugins: read repo-root `.env` so preflight sees the same keys."""
+    repo_root = Path(__file__).resolve().parent.parent
+    load_dotenv(repo_root / ".env")
 
 DEFAULT_REQUIRED = [
     "OPENROUTER_API_KEY",
@@ -44,6 +53,7 @@ def main() -> None:
         help="Require ffmpeg and ffprobe on PATH.",
     )
     args = parser.parse_args()
+    _load_repo_dotenv()
 
     required = list(DEFAULT_REQUIRED)
     if args.skip_podbean:

@@ -1,8 +1,9 @@
 import importlib
+import logging
+import os
+import sys
 import yaml
 import yamlinclude
-import os
-import logging
 from dotenv import load_dotenv
 import hashlib
 import argparse
@@ -21,6 +22,10 @@ load_dotenv()  # take environment variables from .env.
 # Set up logging
 logging.basicConfig(filename='showRunner.log', level=logging.INFO,
                     format='%(asctime)s:%(name)s:%(levelname)s:%(message)s')
+if os.getenv("LLMFH_SHOWRUNNER_LOG_STDOUT", "").strip().lower() in ("1", "true", "yes", "on"):
+    _sh = logging.StreamHandler(sys.stderr)
+    _sh.setFormatter(logging.Formatter("%(asctime)s:%(name)s:%(levelname)s:%(message)s"))
+    logging.getLogger().addHandler(_sh)
 logger = logging.getLogger(__name__)
 def _log_context(run_id, plugin_name, phase, message, level="info"):
     context = f"run_id={run_id} plugin={plugin_name} phase={phase}"

@@ -1,14 +1,14 @@
 """Structured output models for OpenRouter + pydantic-ai.
 
 Schema inventory (YAML / caller):
-- configs * json_script_prompt_js → IntroScriptLines (intro.py, introFromGuestlist.py)
-- configs * json_guest_prompt_js → GuestListJson (intro.py)
+- configs * json_script_prompt → IntroScriptLines.lines (intro.py, introFromGuestlist.py)
+- configs * json_guest_prompt → GuestListJson.guests (intro.py)
 - configs * llm_filter_js → LlmFilterResponse (ytfetch.py via includes/llm_filter_vars.yml)
 """
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, RootModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class IntroLine(BaseModel):
@@ -18,7 +18,10 @@ class IntroLine(BaseModel):
     )
 
 
-IntroScriptLines = RootModel[list[IntroLine]]
+class IntroScriptLines(BaseModel):
+    """Object wrapper so pydantic-ai structured output gets a JSON-schema object root."""
+
+    lines: list[IntroLine]
 
 
 class GuestEntry(BaseModel):
@@ -26,7 +29,8 @@ class GuestEntry(BaseModel):
     guest_name: str
 
 
-GuestListJson = RootModel[list[GuestEntry]]
+class GuestListJson(BaseModel):
+    guests: list[GuestEntry]
 
 
 class LlmFilterResponse(BaseModel):

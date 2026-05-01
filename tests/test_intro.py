@@ -32,8 +32,8 @@ class TestIntro(unittest.TestCase):
             'extra_prompt_response'
         ]
         self.chat_app.run_structured.side_effect = [
-            json.loads('[{"speaker": "test_speaker", "dialog": "test_dialog"}]'),
-            json.loads('[{"guest_category": "test_category", "guest_name": "test_name"}]')
+            {"lines": [{"speaker": "test_speaker", "dialog": "test_dialog"}]},
+            {"guests": [{"guest_category": "test_category", "guest_name": "test_name"}]},
         ]
         # Get the mock instance of the SupaSet class
         # Get the mock instance of the SupaSet class
