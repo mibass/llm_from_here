@@ -43,7 +43,10 @@ def get_openrouter_chat_model() -> str:
     explicit = os.getenv("OPENROUTER_MODEL", "").strip()
     if explicit:
         return explicit
-    return os.getenv("OPENROUTER_MODEL_DEFAULT", "openai/gpt-4o-mini").strip() or "openai/gpt-4o-mini"
+    return (
+        os.getenv("OPENROUTER_MODEL_DEFAULT", "deepseek/deepseek-chat-v2.5").strip()
+        or "deepseek/deepseek-chat-v2.5"
+    )
 
 
 def get_openrouter_tts_model() -> str:
