@@ -90,7 +90,7 @@ See [.env.example](.env.example) and **[docs/supabase.md](docs/supabase.md)** fo
 Optional:
 
 - environment selector `LLMFH_ENV` (`prod` for production publishing)
-- `OPENROUTER_MODEL` (OpenRouter slug; default / example: `deepseek/deepseek-chat-v2.5`)
+- `OPENROUTER_MODEL` (OpenRouter slug; default / example: `deepseek/deepseek-chat`)
 - `OPENROUTER_TTS_MODEL`, `OPENROUTER_TTS_VOICE` for slow TTS
 - `LLMFH_STRUCTURED_OUTPUT_MODE=native|tool` (pydantic-ai structured output style)
 - `LLMFH_OPENROUTER_FREE_MODE=1` for zero-cost chat (`openrouter/free`; ignores paid `OPENROUTER_MODEL` from `.env`) and gTTS for slow TTS — optional `LLMFH_OPENROUTER_FREE_CHAT_MODEL` to pick another slug

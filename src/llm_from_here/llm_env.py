@@ -43,9 +43,10 @@ def get_openrouter_chat_model() -> str:
     explicit = os.getenv("OPENROUTER_MODEL", "").strip()
     if explicit:
         return explicit
+    # OpenRouter IDs change; ``deepseek/deepseek-chat`` is the stable chat slug (currently V3-class).
     return (
-        os.getenv("OPENROUTER_MODEL_DEFAULT", "deepseek/deepseek-chat-v2.5").strip()
-        or "deepseek/deepseek-chat-v2.5"
+        os.getenv("OPENROUTER_MODEL_DEFAULT", "deepseek/deepseek-chat").strip()
+        or "deepseek/deepseek-chat"
     )
 
 
