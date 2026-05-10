@@ -300,6 +300,7 @@ class YtFetch():
         for_download: bool = False,
     ) -> dict:
         """Options aligned between probe and ``download_audio`` (same format chain + env)."""
+        ffmpeg_pp_args = ["-ac", "2"]
         ydl_opts = {
             "format": YOUTUBE_AUDIO_FORMAT_SPEC,
             "postprocessors": [
@@ -314,7 +315,7 @@ class YtFetch():
             "remote_components": {"ejs:github"},
             "quiet": True,
             "noprogress": True,
-            "postprocessor_args": ["-ac", "2"],
+            "postprocessor_args": ffmpeg_pp_args,
         }
         deno_exe = _resolved_deno_executable()
         if deno_exe:
@@ -324,11 +325,7 @@ class YtFetch():
             ydl_opts["check_formats"] = "selected"
         if max_duration:
             logger.info(f"Setting max duration to {max_duration}")
-            ydl_opts["postprocessor_args"] = [
-                *ydl_opts["postprocessor_args"],
-                "-t",
-                str(max_duration),
-            ]
+            ffmpeg_pp_args.extend(["-t", str(max_duration)])
         return ydl_opts
 
     def youtube_video_has_extractable_audio(self, video_url: str, max_duration=None) -> bool:
