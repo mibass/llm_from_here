@@ -1,0 +1,20 @@
+# Install: uv sync --extra dev && uv run pre-commit install
+# Run manually: uv run pre-commit run --all-files
+# Hooks mirror CI (ruff, pyright) plus Gitleaks on staged changes.
+minimum_pre_commit_version: "3.5.0"
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff-check
+
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.409
+    hooks:
+      - id: pyright
