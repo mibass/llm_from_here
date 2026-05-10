@@ -1,8 +1,18 @@
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from llm_from_here.supaQueue import SupaQueue
 import llm_from_here.plugins.gpt as gpt
-from llm_from_here.plugins.guestSelection import GuestSelection 
+from llm_from_here.plugins.guestSelection import GuestSelection
+
+
+class _OfflineGuestsUsed:
+    """Stand-in for SupaSet when SUPABASE_* env is unset (e.g. CI unit tests)."""
+
+    def __contains__(self, item) -> bool:
+        return False
+
+    def elements(self):
+        return []
 
 class TestGuestSelection:
     @pytest.fixture
@@ -18,7 +28,16 @@ class TestGuestSelection:
         params = {"guest_categories": [{"name": "test", "prompt": "Hello"}]}
         global_results = []
         plugin_instance_name = 'test_instance'
-        return GuestSelection(params, global_results, plugin_instance_name, chat_app=mock_chat_app)
+        with patch(
+            'llm_from_here.plugins.guestSelection.SupaSet',
+            return_value=_OfflineGuestsUsed(),
+        ):
+            return GuestSelection(
+                params,
+                global_results,
+                plugin_instance_name,
+                chat_app=mock_chat_app,
+            )
 
     def test_add_to_queue(self, guest_selection, mock_supa_queue, mock_chat_app):
         n = 1

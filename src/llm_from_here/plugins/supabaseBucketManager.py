@@ -58,7 +58,11 @@ class SupabaseBucketManager:
         
     def add_file(self, source, destination):
         temp_file_path = self.truncate_file(source)
-        res = self.supabase.storage.from_(self.bucket_name).upload(destination, temp_file_path)
+        res = self.supabase.storage.from_(self.bucket_name).upload(
+            destination,
+            temp_file_path,
+            file_options={"upsert": "true"},
+        )
         return res
 
     def get_bucket_size(self):

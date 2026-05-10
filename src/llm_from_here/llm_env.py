@@ -43,7 +43,11 @@ def get_openrouter_chat_model() -> str:
     explicit = os.getenv("OPENROUTER_MODEL", "").strip()
     if explicit:
         return explicit
-    return os.getenv("OPENROUTER_MODEL_DEFAULT", "openai/gpt-4o-mini").strip() or "openai/gpt-4o-mini"
+    # OpenRouter IDs change; ``deepseek/deepseek-chat`` is the stable chat slug (currently V3-class).
+    return (
+        os.getenv("OPENROUTER_MODEL_DEFAULT", "deepseek/deepseek-chat").strip()
+        or "deepseek/deepseek-chat"
+    )
 
 
 def get_openrouter_tts_model() -> str:
@@ -61,11 +65,14 @@ def get_structured_output_mode() -> StructuredOutputMode:
     """
     LLMFH_STRUCTURED_OUTPUT_MODE=native|tool.
     In free mode, default to tool when unset (router variability).
+    DeepSeek via OpenRouter does not support pydantic-ai native structured output; default to tool.
     """
     raw = os.getenv("LLMFH_STRUCTURED_OUTPUT_MODE", "").strip().lower()
     if raw in ("native", "tool"):
         return raw  # type: ignore[return-value]
     if is_openrouter_free_mode():
+        return "tool"
+    if "deepseek" in get_openrouter_chat_model().lower():
         return "tool"
     return "native"
 

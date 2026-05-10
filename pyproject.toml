@@ -38,7 +38,7 @@ dependencies = [
   "pyyaml-include<2",
   "ytmusicapi",
   "pydantic-ai>=1.88.0",
-  "curl-cffi>=0.10,<0.15",
+  "curl-cffi>=0.15,<0.16",
 ]
 
 [project.optional-dependencies]
@@ -49,6 +49,7 @@ dev = [
   "mypy",
   "pyright",
   "pip-audit",
+  "pre-commit>=4.6.0",
   "types-PyYAML",
   "types-requests",
 ]
