@@ -91,7 +91,7 @@ class GuestAgentDeps:
     """Normalized name for filter/metadata (falls back to stripped ``guest_name``)."""
 
 
-_guest_agents: dict[str, Agent] = {}
+_guest_agents: dict[str, Agent[GuestAgentDeps, GuestSegment]] = {}
 
 
 def video_metadata_features_guest(
@@ -149,7 +149,7 @@ def _run_filter_llm(
     return kept
 
 
-def _make_guest_agent(model: str) -> Agent:
+def _make_guest_agent(model: str) -> Agent[GuestAgentDeps, GuestSegment]:
     agent = Agent(
         model,
         deps_type=GuestAgentDeps,
@@ -205,7 +205,7 @@ def _make_guest_agent(model: str) -> Agent:
     return agent
 
 
-def get_guest_agent() -> Agent:
+def get_guest_agent() -> Agent[GuestAgentDeps, GuestSegment]:
     """Agent singleton keyed by ``get_structured_model()``."""
     model = get_structured_model()
     if model not in _guest_agents:

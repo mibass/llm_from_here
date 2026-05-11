@@ -95,10 +95,8 @@ def log_pydantic_agent_trace(
         raw_json = run_result.new_messages_json()
         msgs = json.loads(raw_json.decode("utf-8"))
         out_val = output_extra if output_extra is not None else getattr(run_result, "output", None)
-        if hasattr(out_val, "model_dump"):
-            out_payload = out_val.model_dump()
-        else:
-            out_payload = out_val
+        model_dump = getattr(out_val, "model_dump", None)
+        out_payload = model_dump() if callable(model_dump) else out_val
         payload = {
             "kind": "pydantic_ai_run",
             "scope": scope,
@@ -126,8 +124,9 @@ def log_filter_llm_trace(
     if not log.handlers:
         return
     sr = structured_response
-    if hasattr(sr, "model_dump"):
-        sr_payload = sr.model_dump()
+    sr_dump = getattr(sr, "model_dump", None)
+    if callable(sr_dump):
+        sr_payload = sr_dump()
     elif isinstance(sr, dict):
         sr_payload = sr
     else:
