@@ -118,7 +118,7 @@ Make sure to provide the path to your YAML configuration file. The script will e
 
 ### Local quality checks
 
-Run the same checks used in CI:
+Run the same checks used in CI. After `uv run pre-commit install`, commits run **gitleaks**, **ruff**, **pyright**, and **mypy** (same `mypy src tests` as Actions); use `SKIP=gitleaks` locally if you need to skip the secrets scan.
 
 ```bash
 uv run ruff check .
