@@ -112,13 +112,13 @@ Optional flags:
 --output-dir: Use this flag to specify the directory where outputs should be stored. Default is ./outputs.
 ```
 
-Set `LLMFH_SHOWRUNNER_LOG_STDOUT=1` to mirror `showRunner.log` lines to stderr (helpful when piping output).
+Set `LLMFH_SHOWRUNNER_LOG_STDOUT=1` to mirror ShowRunner log lines to stderr (helpful when piping output). Each run writes `show_runner.log` under that run’s output folder (for example `outputs/<show_name>_run42/show_runner.log`). Guest-agent pydantic-ai traces and filter-model structured outputs go to `agent_trace.log` beside it.
 
 Make sure to provide the path to your YAML configuration file. The script will execute plugins defined in the YAML file, store results in the output folder, and log the execution details.
 
 ### Local quality checks
 
-Run the same checks used in CI:
+Run the same checks used in CI. After `uv run pre-commit install`, commits run **gitleaks**, **ruff**, **pyright**, and **mypy** (same `mypy src tests` as Actions); use `SKIP=gitleaks` locally if you need to skip the secrets scan.
 
 ```bash
 uv run ruff check .

@@ -89,6 +89,7 @@ def merge_yt_dlp_env_into(ydl_opts: dict) -> None:
     YT_DLP_SOCKET_TIMEOUT — float seconds for socket_timeout.
     YT_DLP_VERBOSE — if truthy, forces verbose logging and disables quiet/noprogress.
     YT_DLP_DISABLE_FALLBACK — single attempt only (disables automatic no-cookie preset rotation).
+    YT_DLP_VANILLA_FIRST — when preset rotation is enabled, try a plain (no-impersonate) attempt first (local dev without curl-cffi targets).
     YT_DLP_FORMAT — full yt-dlp -f string (overrides default progressive-audio chain).
     YT_DLP_DENO — explicit path to ``deno`` (otherwise PATH / ~/.deno/bin/deno).
     """
@@ -263,11 +264,18 @@ def build_yt_dlp_download_attempt_opts(base_opts: dict) -> list[dict]:
     When YT_DLP_DISABLE_FALLBACK is set, or when cookie / impersonate / extractor tuning
     env vars are set, returns a single attempt (operator-controlled).
 
-    Otherwise returns default presets (no cookies).
+    Otherwise returns default presets (no cookies). When YT_DLP_VANILLA_FIRST is set,
+    prepends a plain ``{}`` overlay and drops the duplicate trailing vanilla preset from
+    the standard rotation.
     """
     if _truthy_env("YT_DLP_DISABLE_FALLBACK") or _explicit_yt_dlp_strategy_env():
         return [copy.deepcopy(base_opts)]
-    return [_merge_ydl_overlay(base_opts, o) for o in _yt_dlp_fallback_overlays()]
+    overlays = list(_yt_dlp_fallback_overlays())
+    if _truthy_env("YT_DLP_VANILLA_FIRST"):
+        if overlays and overlays[-1] == {}:
+            overlays = overlays[:-1]
+        overlays.insert(0, {})
+    return [_merge_ydl_overlay(base_opts, o) for o in overlays]
 
 
 def _scrub_partial_downloads(output_stem: str) -> None:
@@ -409,7 +417,80 @@ class YtFetch():
             })
         
         return videos
-        
+
+    def search_videos_for_agent(
+        self,
+        query: str,
+        *,
+        duration_search_filter: str | None = "medium",
+        duration_min_sec: int,
+        duration_max_sec: int,
+        max_results: int = 15,
+    ) -> list[dict]:
+        """Search + batch ``videos.list`` for durations (guest agent tool helper)."""
+        raw = self.search_videos(
+            query,
+            duration_search_filter=duration_search_filter,
+            max_results=max_results,
+        )
+        if not raw:
+            return []
+        ids = [v["video_id"] for v in raw[:50]]
+        id_chunk = ",".join(ids)
+        video_request = self.youtube.videos().list(
+            part="snippet,contentDetails",
+            id=id_chunk,
+            fields=(
+                "items(id,snippet(title,description,channelTitle),contentDetails(duration))"
+            ),
+        )
+        video_response = self._execute_with_retry(video_request, "youtube_batch_details")
+        by_id = {item["id"]: item for item in video_response.get("items", [])}
+        out: list[dict] = []
+        for v in raw:
+            vid = v["video_id"]
+            item = by_id.get(vid)
+            if not item:
+                continue
+            iso_d = item["contentDetails"]["duration"]
+            ds = self.duration_in_seconds(iso_d)
+            if ds is None:
+                continue
+            if not (duration_min_sec <= ds <= duration_max_sec):
+                continue
+            title = html.unescape(item["snippet"]["title"])
+            desc = html.unescape(item["snippet"].get("description") or "")
+            ch = html.unescape(item["snippet"]["channelTitle"])
+            out.append(
+                {
+                    "video_id": vid,
+                    "title": title,
+                    "channel_title": ch,
+                    "description": desc,
+                    "duration_seconds": int(ds),
+                    "video_url": v["video_url"],
+                }
+            )
+        return out
+
+    def get_video_basic_info(self, video_id: str) -> dict[str, str]:
+        """Snippet fields for a single video id (validates id exists)."""
+        video_request = self.youtube.videos().list(
+            part="snippet",
+            id=video_id,
+            fields="items(snippet(title,channelTitle,description))",
+        )
+        video_response = self._execute_with_retry(video_request, "youtube_video_snippet")
+        items = video_response.get("items") or []
+        if not items:
+            raise ValueError(f"No YouTube video found for id={video_id!r}")
+        sn = items[0]["snippet"]
+        return {
+            "title": html.unescape(sn["title"]),
+            "channel_title": html.unescape(sn["channelTitle"]),
+            "description": html.unescape(sn.get("description") or ""),
+        }
+
     def search_music(self, query, orderby=None, max_results=30):
         results = self.ytmusic.search(query, filter="videos", limit=max_results)
         

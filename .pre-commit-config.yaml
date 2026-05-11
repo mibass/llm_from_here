@@ -1,6 +1,6 @@
 # Install: uv sync --extra dev && uv run pre-commit install
 # Run manually: uv run pre-commit run --all-files
-# Hooks mirror CI (ruff, pyright) plus Gitleaks on staged changes.
+# Hooks mirror CI (ruff, pyright, mypy) plus Gitleaks on staged changes.
 minimum_pre_commit_version: "3.5.0"
 
 repos:
@@ -18,3 +18,14 @@ repos:
     rev: v1.1.409
     hooks:
       - id: pyright
+
+  # Same invocation as CI (.github/workflows/main.yml); uses project venv via uv.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (src + tests)
+        entry: uv run mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+        args: [src, tests]

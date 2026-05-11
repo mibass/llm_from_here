@@ -60,8 +60,10 @@ class StitchAudio():
                     logger.warning(
                         f"No function found for segment type: {speaker} using spoken function.")
                 else:
-                    logger.warning(
-                        f"No function found for segment type: {speaker}. Using default function.")
+                    logger.debug(
+                        "No segment_type_map entry for %r; using default.",
+                        speaker,
+                    )
                 speaker = 'default'
                 
             segment_type_mapped = segment_type_map.get(speaker, 'spoken')

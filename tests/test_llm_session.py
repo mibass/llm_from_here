@@ -47,5 +47,30 @@ class TestLlmSession(unittest.TestCase):
         self.assertIsInstance(spec, NativeOutput)
 
 
+class TestLlmSessionModelSlug(unittest.TestCase):
+    @patch("llm_from_here.llm_session.OpenRouterModel")
+    @patch("llm_from_here.llm_session.Agent")
+    def test_model_slug_passes_string_to_agent_for_ollama(self, mock_agent_cls, mock_or_model):
+        mock_agent_cls.return_value = MagicMock()
+        LlmSession("Hello", model_slug="ollama:qwen3:8b")
+        mock_or_model.assert_not_called()
+        first_arg = mock_agent_cls.call_args[0][0]
+        self.assertEqual(first_arg, "ollama:qwen3:8b")
+
+    @patch("llm_from_here.llm_session.log_free_mode_startup")
+    @patch("llm_from_here.llm_session.get_openrouter_chat_model", return_value="deepseek/deepseek-chat")
+    @patch("llm_from_here.llm_session.OpenRouterModel")
+    @patch("llm_from_here.llm_session.Agent")
+    def test_openrouter_prefix_uses_openrouter_model(
+        self, mock_agent_cls, mock_or_model, _mock_get_slug, _mock_log_free
+    ):
+        mock_agent_cls.return_value = MagicMock()
+        fake_or = MagicMock(name="ORM")
+        mock_or_model.return_value = fake_or
+        LlmSession("", model_slug="openrouter:anthropic/claude-3.5-haiku")
+        mock_or_model.assert_called_once_with("anthropic/claude-3.5-haiku")
+        self.assertIs(mock_agent_cls.call_args[0][0], fake_or)
+
+
 if __name__ == "__main__":
     unittest.main()

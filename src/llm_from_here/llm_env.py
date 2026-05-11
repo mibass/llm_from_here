@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import urllib.error
+import urllib.request
 from typing import Any, Literal
 
 import openai
@@ -10,6 +13,11 @@ import openai
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 StructuredOutputMode = Literal["native", "tool"]
+
+_logger = logging.getLogger(__name__)
+
+# Populated by ShowRunner from YAML ``model_routing`` (see ``set_model_routing``).
+_routing: dict[str, str] = {}
 
 
 def _truthy(name: str) -> bool:
@@ -106,3 +114,63 @@ def log_free_mode_startup(logger: Any, resolved_chat_model: str) -> None:
             "override with LLMFH_OPENROUTER_FREE_CHAT_MODEL if needed)",
             resolved_chat_model,
         )
+
+
+def set_model_routing(config: dict[str, Any] | None) -> None:
+    """Merge YAML ``global_params.model_routing`` into process-wide defaults."""
+    global _routing
+    _routing = dict(config) if isinstance(config, dict) else {}
+
+
+def _routing_or_env(key_yaml: str, key_env: str, default: str) -> str:
+    v = (_routing.get(key_yaml) or "").strip()
+    if v:
+        return v
+    return os.getenv(key_env, "").strip() or default
+
+
+def get_filter_model() -> str:
+    """Small yes/no / classification tasks (OpenRouter by default; override with ``ollama:...`` + ``OLLAMA_BASE_URL``)."""
+    return _routing_or_env(
+        "filter_model",
+        "LLMFH_FILTER_MODEL",
+        "openrouter:openai/gpt-4o-mini",
+    )
+
+
+def get_structured_model() -> str:
+    """Tool-calling agents and structured multi-step reasoning (OpenRouter slug)."""
+    return _routing_or_env(
+        "structured_model",
+        "LLMFH_STRUCTURED_MODEL",
+        "openrouter:openai/gpt-4o-mini",
+    )
+
+
+def get_prose_model() -> str:
+    """Long-form script / high-quality prose (OpenRouter slug)."""
+    return _routing_or_env(
+        "prose_model",
+        "LLMFH_PROSE_MODEL",
+        "openrouter:openai/gpt-4o",
+    )
+
+
+def check_ollama_available(host: str = "127.0.0.1", port: int = 11434) -> bool:
+    """Lightweight ping of Ollama; logs warning and returns False on failure."""
+    url = f"http://{host}:{port}/api/tags"
+    try:
+        urllib.request.urlopen(url, timeout=2)  # noqa: S310 — intentional localhost check
+        return True
+    except (urllib.error.URLError, OSError, TimeoutError) as e:
+        _logger.warning("Ollama not reachable at %s (%s)", url, e)
+        return False
+
+
+def warn_if_ollama_models_unavailable() -> None:
+    """Call once after routing is set if filter or structured slug uses ollama."""
+    for slug in (get_filter_model(), get_structured_model()):
+        low = slug.lower()
+        if low.startswith("ollama:") or low.startswith("ollama/"):
+            check_ollama_available()
+            break

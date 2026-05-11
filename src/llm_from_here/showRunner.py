@@ -2,7 +2,6 @@ import importlib
 import json
 import logging
 import os
-import sys
 import yaml
 import yamlinclude
 from dotenv import load_dotenv
@@ -15,18 +14,14 @@ from llm_from_here.pickleDict import PickleDict
 import appdirs
 import llm_from_here.plugins as plugins
 from llm_from_here.common import is_production
+from llm_from_here.llm_env import set_model_routing, warn_if_ollama_models_unavailable
+from llm_from_here.run_logging import bootstrap_showrunner_logging, configure_show_run_logging
 import uuid
 
 # load env variables
 load_dotenv()  # take environment variables from .env.
 
-# Set up logging
-logging.basicConfig(filename='showRunner.log', level=logging.INFO,
-                    format='%(asctime)s:%(name)s:%(levelname)s:%(message)s')
-if os.getenv("LLMFH_SHOWRUNNER_LOG_STDOUT", "").strip().lower() in ("1", "true", "yes", "on"):
-    _sh = logging.StreamHandler(sys.stderr)
-    _sh.setFormatter(logging.Formatter("%(asctime)s:%(name)s:%(levelname)s:%(message)s"))
-    logging.getLogger().addHandler(_sh)
+bootstrap_showrunner_logging()
 logger = logging.getLogger(__name__)
 def _log_context(run_id, plugin_name, phase, message, level="info"):
     context = f"run_id={run_id} plugin={plugin_name} phase={phase}"
@@ -111,7 +106,10 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
 
     # Create unique outputs folder based on show parameter
     show_name = data.get('show_name', 'show')
-    global_results = data.get('global_parameters', {})
+    raw_global = data.get("global_parameters") or data.get("global_params") or {}
+    global_results = dict(raw_global) if isinstance(raw_global, dict) else {}
+    set_model_routing(global_results.get("model_routing") or {})
+    warn_if_ollama_models_unavailable()
 
     # Determine the run count based on previous folder
     last_run_count = get_last_run_count(show_name, outputs_dir)
@@ -123,7 +121,8 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
     os.makedirs(output_folder, exist_ok=True)
     global_results['output_folder'] = output_folder
     global_results['run_id'] = run_id
-    
+    configure_show_run_logging(output_folder)
+
     # list of objects that need to be finalized at the end of a successful run
     to_be_finalized = []
 
