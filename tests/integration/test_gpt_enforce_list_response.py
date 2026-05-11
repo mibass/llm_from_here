@@ -36,8 +36,9 @@ def test_enforce_list_response(chat_app, prompt):
 @pytest.mark.parametrize("prompt", prompts)
 def test_enforce_list_response_consensus(chat_app, prompt):
     print(prompt)
-    # Small n + num_consensus=1 keeps integration fast (see enforce_list_response_consensus loop).
-    n = 12
+    # ``num_consensus=1`` + large ``num_entries`` loops until enough unique items exist — keep n small
+    # so one strong LLM response usually finishes in a single iteration (avoids multi-minute hangs).
+    n = 5
     response = chat_app.enforce_list_response_consensus(
         prompt,
         num_entries=n,

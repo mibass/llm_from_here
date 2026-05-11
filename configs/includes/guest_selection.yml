@@ -1,5 +1,7 @@
 # Same SupaSet as plugins.intro (`guests_set`): prune rows older than N days (0 = no pruning).
 guests_used_autoexpire_days: 365
+# Collapse duplicate guest_name rows after category sampling (e.g. n_times repeats).
+dedupe_guests_per_episode: true
 
 guest_categories:
   - name: music

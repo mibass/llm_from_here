@@ -1,5 +1,6 @@
 import json
 import llm_from_here.plugins.gpt as gpt
+from llm_from_here.llm_env import get_prose_model
 from llm_from_here.schemas.llm_outputs import IntroScriptLines
 from jsonschema import validate
 from jsonschema.exceptions import ValidationError
@@ -19,7 +20,9 @@ def render_template(template_string, **kwargs):
 
 class IntroFromGuestlist:
     def __init__(self, params, global_params, plugin_instance_name, chat_app=None):
-        self.chat_app = chat_app or gpt.ChatApp(params['system_message'])
+        self.chat_app = chat_app or gpt.ChatApp(
+            params["system_message"], model_slug=get_prose_model()
+        )
         self.params = params
         self.global_params = global_params
         self.plugin_instance_name = plugin_instance_name

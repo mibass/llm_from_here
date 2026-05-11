@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from pydub import AudioSegment
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.timeout(900)]
 
 # Configure logging to output to stdout
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)

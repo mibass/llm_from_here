@@ -1,0 +1,10 @@
+[
+  {"guest_name": "Yo-Yo Ma", "guest_category": "music"},
+  {"guest_name": "Indigo Girls", "guest_category": "music"},
+  {"guest_name": "Tig Notaro", "guest_category": "comedy"},
+  {"guest_name": "Ta-Nehisi Coates", "guest_category": "author"},
+  {"guest_name": "Robin Wall Kimmerer", "guest_category": "author"},
+  {"guest_name": "Viola Davis", "guest_category": "actor"},
+  {"guest_name": "UCB Theatre", "guest_category": "improv"},
+  {"guest_name": "Margaret Cho", "guest_category": "comedy"}
+]
