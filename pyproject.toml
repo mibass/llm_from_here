@@ -37,7 +37,7 @@ dependencies = [
   "freesound-python @ git+https://github.com/MTG/freesound-python.git#egg=freesound",
   "pyyaml-include<2",
   "ytmusicapi",
-  "pydantic-ai>=1.88.0",
+  "pydantic-ai>=1.99.0",
   "curl-cffi>=0.15,<0.16",
   "tenacity>=8.0",
 ]
