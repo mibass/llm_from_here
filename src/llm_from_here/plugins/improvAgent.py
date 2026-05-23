@@ -324,10 +324,12 @@ class ImprovAgent:
                     idx, sfx_reason = self._judge_pick_sfx(cue, ctx, sounds)
                     fs_id = None
                     if idx is not None and sounds:
-                        try:
-                            fs_id = int(getattr(sounds[idx], "id", None))
-                        except (TypeError, ValueError):
-                            fs_id = None
+                        raw_id = getattr(sounds[idx], "id", None)
+                        if raw_id is not None:
+                            try:
+                                fs_id = int(raw_id)
+                            except (TypeError, ValueError):
+                                fs_id = None
                     segments.append(
                         {
                             "speaker": "sound effect",

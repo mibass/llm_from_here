@@ -1,9 +1,12 @@
+import logging
 import unittest
 from unittest.mock import patch, MagicMock
 import os
 import shutil
 import yaml
 import tempfile
+
+from pydub import AudioSegment
 from llm_from_here.plugins.segmentsToTimeline import SegmentsToTimeline
 import llm_from_here.plugins.audioTimeline as audioTimeline
 
@@ -293,6 +296,110 @@ class TestSegmentsToTimeline(unittest.TestCase):
             search_args = self.stt.youtube_search.call_args[0]
             self.assertLessEqual(len(search_args[0]), 80)
             self.assertEqual(res["title"], "yt")
+
+    def test_use_agent_dispatches_to_agent_search(self):
+        yaml_agent = """
+    params:
+      use_agent: True
+      segments_object: intro_guests
+      segment_type_key: guest_category
+      segment_value_key: guest_name
+      segment_type_map:
+        default:
+          segment_type: youtube_search
+          intro_name: False
+          intro_applause: False
+          arguments:
+            duration_min_sec: 300
+            duration_max_sec: 600
+      segment_transition_map: []
+"""
+        mock_global_results = {
+            "intro_guests": [{"guest_category": "music", "guest_name": "Pat"}],
+            "output_folder": tempfile.mkdtemp(),
+        }
+        params = yaml.safe_load(yaml_agent)["params"]
+        stt = SegmentsToTimeline(params, mock_global_results, "agent_test")
+
+        def _fake_agent(guest_name, output_file, *, guest_category="", **kwargs):
+            AudioSegment.silent(duration=3000).export(output_file, format="wav")
+            return {"title": "Video Title", "video_url": "http://x", "duration_sec": 3.0}
+
+        stt.agent_search = MagicMock(side_effect=_fake_agent)
+        stt.timeline = MagicMock()
+        stt.generate_audio_segments()
+        stt.agent_search.assert_called_once()
+        call_kw = stt.agent_search.call_args.kwargs
+        self.assertEqual(call_kw.get("guest_category"), "music")
+        shutil.rmtree(mock_global_results["output_folder"])
+
+    def test_segment_type_default_fallback_emits_debug_not_warning(self):
+        yaml_agent = """
+    params:
+      use_agent: True
+      segments_object: intro_guests
+      segment_type_key: guest_category
+      segment_value_key: guest_name
+      segment_type_map:
+        default:
+          segment_type: youtube_search
+          intro_name: False
+          intro_applause: False
+          arguments:
+            duration_min_sec: 300
+            duration_max_sec: 600
+      segment_transition_map: []
+"""
+        mock_global_results = {
+            "intro_guests": [{"guest_category": "music", "guest_name": "Pat"}],
+            "output_folder": tempfile.mkdtemp(),
+        }
+        params = yaml.safe_load(yaml_agent)["params"]
+        stt = SegmentsToTimeline(params, mock_global_results, "fallback_test")
+
+        def _fake_agent(guest_name, output_file, *, guest_category="", **kwargs):
+            AudioSegment.silent(duration=3000).export(output_file, format="wav")
+            return {"title": "Video Title", "video_url": "http://x", "duration_sec": 3.0}
+
+        stt.agent_search = MagicMock(side_effect=_fake_agent)
+        stt.timeline = MagicMock()
+        log_name = "llm_from_here.plugins.segmentsToTimeline"
+        try:
+            with self.assertLogs(log_name, level="DEBUG") as cm:
+                stt.generate_audio_segments()
+            found_debug_fallback = any(
+                "No segment_type_map entry" in r.getMessage() for r in cm.records
+            )
+            self.assertTrue(found_debug_fallback)
+            bad_warnings = [
+                r
+                for r in cm.records
+                if r.levelno >= logging.WARNING
+                and "No function found for segment type" in r.getMessage()
+            ]
+            self.assertEqual(bad_warnings, [])
+        finally:
+            shutil.rmtree(mock_global_results["output_folder"])
+
+    def test_use_agent_false_uses_youtube_dispatch(self):
+        """Regression: default path still calls segment_type handler."""
+        data = [
+            {"speaker": "music", "dialog": "music1"},
+        ]
+        self.mock_global_results["intro_intro"] = data
+        output_folder = self.mock_global_results["output_folder"]
+        try:
+            self.stt = SegmentsToTimeline(
+                self.mock_params, self.mock_global_results, self.mock_plugin_instance_name
+            )
+            self.assertFalse(self.stt.params.get("use_agent", False))
+            self.stt.youtube_playlist = MagicMock(return_value={"title": "t", "video_url": "u"})
+            self.stt.timeline = MagicMock()
+            self.stt.chat_app_object = MagicMock()
+            self.stt.generate_audio_segments()
+            self.stt.youtube_playlist.assert_called_once()
+        finally:
+            shutil.rmtree(output_folder, ignore_errors=True)
 
 
 if __name__ == '__main__':

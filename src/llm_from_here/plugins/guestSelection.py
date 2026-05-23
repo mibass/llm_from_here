@@ -22,6 +22,21 @@ def _dedupe_preserve_order(names: list) -> list:
     return out
 
 
+def _dedupe_guest_rows_by_name(guests: list) -> list:
+    """Keep first occurrence per ``guest_name`` (episode roster uniqueness)."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for g in guests:
+        name = g.get("guest_name")
+        if not isinstance(name, str):
+            name = str(name)
+        if name in seen:
+            continue
+        seen.add(name)
+        out.append(g)
+    return out
+
+
 class GuestSelection:
     def __init__(self, params, global_results, plugin_instance_name, chat_app=None):
         self.chat_app = chat_app or gpt.ChatApp()
@@ -178,6 +193,9 @@ class GuestSelection:
 
             for guest in selected_guests:
                 guests.append({"guest_name": guest, "guest_category": name})
+
+        if self.params.get("dedupe_guests_per_episode", True):
+            guests = _dedupe_guest_rows_by_name(guests)
 
         self._guest_names_this_run = [g["guest_name"] for g in guests]
         supaqs["guests"] = guests

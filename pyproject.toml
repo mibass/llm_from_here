@@ -38,12 +38,14 @@ dependencies = [
   "pyyaml-include<2",
   "ytmusicapi",
   "pydantic-ai>=1.88.0",
-  "curl-cffi>=0.14,<0.15",
+  "curl-cffi>=0.15,<0.16",
+  "tenacity>=8.0",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest",
+  "pytest-timeout>=2.3",
   "tabulate",
   "ruff",
   "mypy",

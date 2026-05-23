@@ -2,7 +2,6 @@ import importlib
 import json
 import logging
 import os
-import sys
 import yaml
 import yamlinclude
 from dotenv import load_dotenv
@@ -15,29 +14,14 @@ from llm_from_here.pickleDict import PickleDict
 import appdirs
 import llm_from_here.plugins as plugins
 from llm_from_here.common import is_production
+from llm_from_here.llm_env import set_model_routing, warn_if_ollama_models_unavailable
+from llm_from_here.run_logging import bootstrap_showrunner_logging, configure_show_run_logging
 import uuid
 
 # load env variables
 load_dotenv()  # take environment variables from .env.
 
-_log_format = "%(asctime)s:%(name)s:%(levelname)s:%(message)s"
-
-
-def _configure_output_logging(output_folder: str) -> None:
-    """Send run logs to ``{output_folder}/showRunner.log`` (and optional stderr)."""
-    log_path = os.path.join(output_folder, "showRunner.log")
-    fmt = logging.Formatter(_log_format)
-    handlers: list[logging.Handler] = []
-    fh = logging.FileHandler(log_path, encoding="utf-8")
-    fh.setFormatter(fmt)
-    handlers.append(fh)
-    if os.getenv("LLMFH_SHOWRUNNER_LOG_STDOUT", "").strip().lower() in ("1", "true", "yes", "on"):
-        sh = logging.StreamHandler(sys.stderr)
-        sh.setFormatter(fmt)
-        handlers.append(sh)
-    logging.basicConfig(level=logging.INFO, handlers=handlers, force=True)
-
-
+bootstrap_showrunner_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -117,7 +101,10 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
 
     # Create unique outputs folder based on show parameter
     show_name = data.get('show_name', 'show')
-    global_results = data.get('global_parameters', {})
+    raw_global = data.get("global_parameters") or data.get("global_params") or {}
+    global_results = dict(raw_global) if isinstance(raw_global, dict) else {}
+    set_model_routing(global_results.get("model_routing") or {})
+    warn_if_ollama_models_unavailable()
 
     # Determine the run count based on previous folder
     last_run_count = get_last_run_count(show_name, outputs_dir)
@@ -127,7 +114,6 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
     # create the folder, if it doesn't exist
     output_folder = os.path.join(outputs_dir, f"{show_name}_run{run_count}")
     os.makedirs(output_folder, exist_ok=True)
-    _configure_output_logging(output_folder)
 
     if clear_cache:
         plugin_cache.clear()
@@ -138,7 +124,8 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
 
     global_results['output_folder'] = output_folder
     global_results['run_id'] = run_id
-    
+    configure_show_run_logging(output_folder)
+
     # list of objects that need to be finalized at the end of a successful run
     to_be_finalized = []
 

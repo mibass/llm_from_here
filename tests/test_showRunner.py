@@ -78,7 +78,7 @@ class TestShowRunner(unittest.TestCase):
                             showRunner.execute_plugins(self.yaml_file, outputs_dir=temp_dir)
                         except Exception as e:
                             self.fail(f'execute_plugins raised an exception: {e}')
-                        logs = list(Path(temp_dir).rglob("showRunner.log"))
+                        logs = list(Path(temp_dir).rglob("show_runner.log"))
                         self.assertEqual(len(logs), 1, msg="run log should live under output_dir")
                         self.assertGreater(logs[0].stat().st_size, 0)
 

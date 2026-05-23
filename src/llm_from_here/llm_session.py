@@ -33,36 +33,53 @@ import dotenv
 dotenv.load_dotenv()
 
 
-def _openrouter_model(slug: str) -> OpenRouterModel:
-    """OpenRouter model; free mode uses tool_choice=auto (openrouter/free rejects required)."""
-    if is_openrouter_free_mode():
-        return OpenRouterModel(
-            slug,
-            profile=OpenAIModelProfile(openai_supports_tool_choice_required=False),
-        )
-    return OpenRouterModel(slug)
-
-
 class LlmSession:
     """Multi-turn chat + structured outputs via OpenRouter and pydantic-ai."""
 
-    def __init__(self, system_message: str = "", *, model_slug: str | None = None):
+    def __init__(self, system_message: str = "", model_slug: str | None = None):
         self.system_message = system_message
+        self.model_slug = model_slug
         self.chat_model_slug = (
-            str(model_slug).strip()
-            if model_slug is not None and str(model_slug).strip()
-            else get_openrouter_chat_model()
+            model_slug.split(":", 1)[1].strip()
+            if model_slug and model_slug.startswith("openrouter:")
+            else (model_slug if model_slug else get_openrouter_chat_model())
         )
-        log_free_mode_startup(logger, self.chat_model_slug)
+        resolved = self._resolve_agent_backend(model_slug)
+        uses_openrouter = model_slug is None or (
+            isinstance(model_slug, str) and model_slug.startswith("openrouter:")
+        )
+        if uses_openrouter:
+            log_free_mode_startup(logger, self.chat_model_slug)
         self._history_serial: list[dict[str, Any]] = []
         self.responses: list[Any] = []
         self._agent = Agent(
-            _openrouter_model(self.chat_model_slug),
+            resolved,
             system_prompt=(system_message,) if system_message else (),
             output_type=str,
             retries=3,
             output_retries=5,
         )
+
+    @staticmethod
+    def _resolve_agent_backend(model_slug: str | None) -> Any:
+        """OpenRouter via ``OpenRouterModel``; native providers via plain model string."""
+        if model_slug is None:
+            slug = get_openrouter_chat_model()
+            if is_openrouter_free_mode():
+                return OpenRouterModel(
+                    slug,
+                    profile=OpenAIModelProfile(openai_supports_tool_choice_required=False),
+                )
+            return OpenRouterModel(slug)
+        if model_slug.startswith("openrouter:"):
+            inner = model_slug.split(":", 1)[1].strip() or get_openrouter_chat_model()
+            if is_openrouter_free_mode():
+                return OpenRouterModel(
+                    inner,
+                    profile=OpenAIModelProfile(openai_supports_tool_choice_required=False),
+                )
+            return OpenRouterModel(inner)
+        return model_slug
 
     def __getstate__(self) -> dict[str, Any]:
         state = self.__dict__.copy()
@@ -71,10 +88,16 @@ class LlmSession:
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
-        if not getattr(self, "chat_model_slug", None):
+        slug = getattr(self, "model_slug", None)
+        if slug is None:
             self.chat_model_slug = get_openrouter_chat_model()
+        elif slug.startswith("openrouter:"):
+            self.chat_model_slug = slug.split(":", 1)[1].strip() or get_openrouter_chat_model()
+        else:
+            self.chat_model_slug = slug
+        resolved = self._resolve_agent_backend(slug)
         self._agent = Agent(
-            _openrouter_model(self.chat_model_slug),
+            resolved,
             system_prompt=(self.system_message,) if self.system_message else (),
             output_type=str,
             retries=3,

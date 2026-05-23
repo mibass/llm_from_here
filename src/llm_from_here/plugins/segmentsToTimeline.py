@@ -5,6 +5,8 @@ import shutil
 
 from llm_from_here.llm_env import is_lyria_enabled, is_openrouter_free_mode
 from llm_from_here.openrouter_music import generate_instrumental, youtube_fallback_query
+from pydub import AudioSegment
+
 from llm_from_here.plugins.applause import generate_applause
 import llm_from_here.plugins.freesoundfetch as freesoundfetch
 import llm_from_here.plugins.ytfetch as ytfetch
@@ -12,6 +14,15 @@ import llm_from_here.plugins.audioTimeline as audioTimeline
 
 import logging
 from typing import Any
+
+from llm_from_here.agents.guest_agent import (
+    GuestAgentDeps,
+    get_guest_agent,
+    strip_guest_queue_prefix,
+    video_metadata_features_guest,
+)
+from llm_from_here.models.guest_models import GuestSegment
+from llm_from_here.run_logging import log_pydantic_agent_trace
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +229,457 @@ class SegmentsToTimeline:
         )
         return res
 
+    def agent_search(self, guest_name, output_file, *, guest_category: str = "", **kwargs):
+        """Guest clip discovery via pydantic-ai + YouTube Data API + yt-dlp download.
+
+        Retries fresh agent runs when picks fail validation or collide with ``excluded_video_ids``.
+        ``guest_clip_max_attempts`` (from kwargs, default 4) caps attempts per call.
+        """
+        attempt_kw = int(kwargs.pop("guest_clip_max_attempts", 4))
+        max_attempts = max(1, attempt_kw)
+        excluded: set[str] = set(kwargs.pop("excluded_video_ids", None) or [])
+
+        self.init_ytfetch(**kwargs)
+        duration_min_sec = int(kwargs.get("duration_min_sec", 300))
+        duration_max_sec = int(kwargs.get("duration_max_sec", 660))
+
+        match_name = strip_guest_queue_prefix(guest_name or "")
+        agent = get_guest_agent()
+
+        for attempt in range(1, max_attempts + 1):
+            deps = GuestAgentDeps(
+                yt_fetch=self.yt_fetch,
+                duration_min_sec=duration_min_sec,
+                duration_max_sec=duration_max_sec,
+                guest_category=guest_category or "guest",
+                guest_name=guest_name or "",
+                guest_match_name=match_name,
+            )
+            user_msg = (
+                f'Guest category: {deps.guest_category}. Guest name: "{match_name}". '
+                "Find one appropriate YouTube clip for this guest segment."
+            )
+            if excluded:
+                user_msg += (
+                    " Do NOT choose any of these video IDs (already rejected or used): "
+                    + ", ".join(sorted(excluded))
+                    + "."
+                )
+
+            try:
+                run_result = agent.run_sync(user_msg, deps=deps)
+                raw_seg = run_result.output
+                segment = (
+                    raw_seg
+                    if isinstance(raw_seg, GuestSegment)
+                    else GuestSegment.model_validate(raw_seg)
+                )
+                log_pydantic_agent_trace(
+                    "guest_agent.agent_search",
+                    run_result,
+                    context={
+                        "guest_name": guest_name,
+                        "guest_category": guest_category,
+                        "attempt": attempt,
+                        "run_id": self.global_results.get("run_id"),
+                        "output_folder": self.global_results.get("output_folder"),
+                    },
+                    output_extra=segment,
+                )
+            except Exception as err:
+                logger.exception(
+                    "guest_agent.run_sync failed (attempt %s/%s): %s",
+                    attempt,
+                    max_attempts,
+                    err,
+                )
+                continue
+
+            video_url = f"https://www.youtube.com/watch?v={segment.video_id}"
+            if segment.video_id in excluded:
+                logger.info(
+                    "guest_agent returned excluded video_id=%s; retrying (%s/%s)",
+                    segment.video_id,
+                    attempt,
+                    max_attempts,
+                )
+                continue
+
+            try:
+                meta = self.yt_fetch.get_video_basic_info(segment.video_id)
+                video_title = meta["title"]
+                description = meta.get("description") or ""
+            except Exception as err:
+                logger.warning("Invalid agent video_id=%s: %s", segment.video_id, err)
+                excluded.add(segment.video_id)
+                continue
+
+            if not video_metadata_features_guest(match_name, video_title, description):
+                logger.warning(
+                    "Skipping agent pick %s (%r): metadata does not match guest %r (attempt %s/%s)",
+                    segment.video_id,
+                    video_title,
+                    guest_name,
+                    attempt,
+                    max_attempts,
+                )
+                excluded.add(segment.video_id)
+                continue
+
+            if not self.yt_fetch.youtube_video_has_extractable_audio(video_url):
+                logger.warning(
+                    "Skipping agent pick %s (%r): no extractable audio",
+                    segment.video_id,
+                    video_title,
+                )
+                excluded.add(segment.video_id)
+                continue
+
+            if not self.yt_fetch.video_ids_returned.add(segment.video_id):
+                logger.info(
+                    "Video %s already used in this episode; retrying guest_agent (%s/%s)",
+                    segment.video_id,
+                    attempt,
+                    max_attempts,
+                )
+                excluded.add(segment.video_id)
+                continue
+
+            try:
+                self.yt_fetch.download_audio(video_url, output_file)
+            except Exception as err:
+                logger.exception("download_audio failed for %s: %s", video_url, err)
+                excluded.add(segment.video_id)
+                continue
+
+            duration_sec = len(AudioSegment.from_file(output_file)) / 1000.0
+            logger.info(
+                "Agent guest clip: guest=%r video=%s title=%r duration_sec=%.1f",
+                guest_name,
+                segment.video_id,
+                video_title,
+                duration_sec,
+            )
+            return {
+                "title": video_title,
+                "video_url": video_url,
+                "duration_sec": duration_sec,
+            }
+
+        logger.warning(
+            "agent_search exhausted %s attempts for guest=%r category=%r",
+            max_attempts,
+            guest_name,
+            guest_category,
+        )
+        return None
+
+    @staticmethod
+    def _normalized_guest_key(name: str) -> str:
+        return (name or "").strip().lower()
+
+    def _dequeue_fallback_guest_row(self, category: str, used_normalized: set[str]) -> dict | None:
+        """Pull another name from the same Supabase queue used by ``guest_selection``."""
+        prefix = self.params.get("guest_fallback_queue_key_prefix", "guest_selection_")
+        cat = (category or "").strip().lower()
+        key = f"{prefix}{cat}"
+        sq = self.global_results.get(key)
+        if sq is None or not hasattr(sq, "dequeue"):
+            logger.debug("No SupaQueue at %r for fallback dequeue", key)
+            return None
+        for _ in range(80):
+            batch = sq.dequeue(1)
+            if not batch:
+                logger.info("Fallback dequeue exhausted for queue %r", key)
+                return None
+            name = batch[0]
+            nk = self._normalized_guest_key(name)
+            if nk in used_normalized:
+                logger.info("Fallback dequeued duplicate guest %r; continuing", name)
+                continue
+            return {"guest_name": name, "guest_category": cat}
+        return None
+
+    def _resolve_segment_type(self, entry: dict, type_key: str, segment_type_map: dict) -> str | None:
+        segment_type = entry[type_key].lower()
+        if segment_type not in segment_type_map:
+            if "default" not in segment_type_map:
+                logger.warning(
+                    "No function found for segment type: %s and no default set. Skipping segment.",
+                    segment_type,
+                )
+                return None
+            logger.debug(
+                "No segment_type_map entry for %r; using default.",
+                segment_type,
+            )
+            segment_type = "default"
+        return segment_type
+
+    def _attach_guest_clip_to_timeline(
+        self,
+        *,
+        i: int,
+        entry: dict,
+        type_key: str,
+        value_key: str,
+        file_path: str,
+        res: dict,
+        segment_type: str,
+        segment_type_map: dict,
+        segment_transition_map: list | None,
+        output_folder: str,
+        background_music: bool,
+        background_end_fade_ms: int | None = None,
+    ) -> float:
+        """Intro TTS + applause + clip on timeline. Returns clip duration in seconds."""
+        title = res.get("title") if isinstance(res, dict) else None
+
+        if segment_type_map[segment_type].get("intro_name", False) and title:
+            intro_file_name = f"{self.plugin_instance_name}_{i:03d}_intro_name.wav"
+            intro_file_path = os.path.join(output_folder, intro_file_name)
+            prompt = segment_type_map[segment_type].get("intro_prompt", None)
+            if prompt and self.chat_app_object:
+                intro_prompt = prompt + entry[value_key] + ":::" + title
+                logger.info(f"Prompting chat app with: {intro_prompt}")
+                intro_text = self.chat_app_object.chat(intro_prompt, strip_quotes=True)
+            else:
+                intro_text = "Ladies and gentlemen... {intro_text}"
+
+            fast_tts = segment_type_map[segment_type].get("fast_tts", True)
+            self.tts(intro_text, intro_file_path, fast_tts=fast_tts)
+
+            afp_kwargs = self.get_transition_map_entry(
+                segment_transition_map, "intro_name"
+            )
+            self.timeline.add_after_previous(
+                intro_file_path,
+                label=audioTimeline.SegmentLabel.FOREGROUND,
+                name=f"intro_name_{i}",
+                type="intro_name",
+                **afp_kwargs,
+            )
+            logger.info(f"Generated intro name for: {intro_text}")
+
+        if segment_type_map[segment_type].get("intro_applause", False):
+            applause_file_name = f"{self.plugin_instance_name}_{i:03d}_intro_applause.wav"
+            applause_file_path = os.path.join(output_folder, applause_file_name)
+            self.applause_generator("duration 3", applause_file_path)
+
+            afp_kwargs = self.get_transition_map_entry(
+                segment_transition_map, "intro_applause"
+            )
+            self.timeline.add_after_previous(
+                applause_file_path,
+                label=audioTimeline.SegmentLabel.FOREGROUND,
+                name=f"intro_applause_{i}",
+                type="intro_applause",
+                **afp_kwargs,
+            )
+            logger.info("Generated applause")
+
+        afp_kwargs = self.get_transition_map_entry(
+            segment_transition_map, entry[type_key]
+        )
+        logger.info(
+            "Adding %s to timeline as label %s and args %s",
+            entry[type_key],
+            audioTimeline.SegmentLabel.BACKGROUND
+            if background_music
+            else audioTimeline.SegmentLabel.FOREGROUND,
+            afp_kwargs,
+        )
+        timeline_kwargs = dict(afp_kwargs)
+        if background_music and background_end_fade_ms:
+            timeline_kwargs["end_fade_ms"] = background_end_fade_ms
+        self.timeline.add_after_previous(
+            file_path,
+            label=audioTimeline.SegmentLabel.BACKGROUND
+            if background_music
+            else audioTimeline.SegmentLabel.FOREGROUND,
+            name=title if title else f"{entry[type_key]}_{i}",
+            type=entry[type_key],
+            **timeline_kwargs,
+        )
+
+        dur = float(res.get("duration_sec") or 0.0)
+        if dur <= 0 and os.path.isfile(file_path):
+            dur = len(AudioSegment.from_file(file_path)) / 1000.0
+        return dur
+
+    def _try_agent_guest_clip(
+        self,
+        *,
+        entry: dict,
+        segment_index: int,
+        type_key: str,
+        value_key: str,
+        segment_type: str,
+        segment_type_map: dict,
+        segment_transition_map: list | None,
+        output_folder: str,
+        background_music: bool,
+        max_attempts: int,
+        background_end_fade_ms: int | None = None,
+    ) -> float | None:
+        """Run agent_search (+ timeline hooks). Returns clip duration sec or None."""
+        filename_prefix = f"{self.plugin_instance_name}_{segment_index:03d}"
+        filename = filename_prefix + ".wav"
+        file_path = os.path.join(output_folder, filename)
+        function_arguments = dict(segment_type_map[segment_type].get("arguments", {}))
+        logger.info(
+            "Generating audio for type: %s using agent_search with value: %s",
+            entry[type_key],
+            entry[value_key],
+        )
+        res = self.agent_search(
+            entry[value_key],
+            file_path,
+            guest_category=entry[type_key],
+            guest_clip_max_attempts=max_attempts,
+            **function_arguments,
+        )
+        if res is None:
+            logger.info("No audio generated for type: %s", entry[type_key])
+            return None
+        return self._attach_guest_clip_to_timeline(
+            i=segment_index,
+            entry=entry,
+            type_key=type_key,
+            value_key=value_key,
+            file_path=file_path,
+            res=res,
+            segment_type=segment_type,
+            segment_type_map=segment_type_map,
+            segment_transition_map=segment_transition_map,
+            output_folder=output_folder,
+            background_music=background_music,
+            background_end_fade_ms=background_end_fade_ms,
+        )
+
+    def _generate_guest_audio_target_duration(self):
+        """Fill guest clips until ``target_guest_audio_sec`` using retries + queue fallbacks."""
+        output_folder = self.global_results["output_folder"]
+        type_key = self.params.get("segment_type_key", "speaker")
+        value_key = self.params.get("segment_value_key", "dialog")
+        segment_type_map = self.params.get("segment_type_map", {})
+        segment_transition_map = self.params.get("segment_transition_map", [])
+        target_sec = float(self.params["target_guest_audio_sec"])
+        max_attempts = int(self.params.get("guest_clip_max_attempts", 4))
+        max_fb_attempts = int(self.params.get("guest_fallback_max_attempts", 48))
+        replace_on_fail = bool(self.params.get("guest_replace_on_primary_failure", True))
+
+        primary = self.get_data(type_key, value_key)
+        fb_categories = self.params.get("guest_fallback_categories")
+        if not fb_categories:
+            fb_categories = sorted({e[type_key].lower() for e in primary})
+        fb_categories = [str(c).lower() for c in fb_categories]
+
+        used_norm = {self._normalized_guest_key(e[value_key]) for e in primary}
+        accum_sec = 0.0
+        segment_idx = 0
+        rr = 0
+        fb_attempts = 0
+
+        def segment_bg_flag(seg_t: str) -> bool:
+            return bool(segment_type_map[seg_t].get("background_music", False))
+
+        for entry in primary:
+            seg_type = self._resolve_segment_type(entry, type_key, segment_type_map)
+            if seg_type is None:
+                segment_idx += 1
+                continue
+            bg = segment_bg_flag(seg_type)
+
+            dur = self._try_agent_guest_clip(
+                entry=entry,
+                segment_index=segment_idx,
+                type_key=type_key,
+                value_key=value_key,
+                segment_type=seg_type,
+                segment_type_map=segment_type_map,
+                segment_transition_map=segment_transition_map,
+                output_folder=output_folder,
+                background_music=bg,
+                max_attempts=max_attempts,
+            )
+            if dur is None and replace_on_fail:
+                fb_row = self._dequeue_fallback_guest_row(entry[type_key], used_norm)
+                if fb_row:
+                    used_norm.add(self._normalized_guest_key(fb_row[value_key]))
+                    logger.info(
+                        "Primary guest clip failed; trying fallback guest %r (%s)",
+                        fb_row[value_key],
+                        fb_row[type_key],
+                    )
+                    fb_seg = self._resolve_segment_type(fb_row, type_key, segment_type_map)
+                    if fb_seg is not None:
+                        dur = self._try_agent_guest_clip(
+                            entry=fb_row,
+                            segment_index=segment_idx,
+                            type_key=type_key,
+                            value_key=value_key,
+                            segment_type=fb_seg,
+                            segment_type_map=segment_type_map,
+                            segment_transition_map=segment_transition_map,
+                            output_folder=output_folder,
+                            background_music=segment_bg_flag(fb_seg),
+                            max_attempts=max_attempts,
+                        )
+
+            if dur is not None:
+                accum_sec += dur
+                logger.info(
+                    "Guest audio accumulated %.1fs / target %.1fs after %s",
+                    accum_sec,
+                    target_sec,
+                    entry[value_key],
+                )
+            segment_idx += 1
+
+        while accum_sec < target_sec and fb_attempts < max_fb_attempts:
+            if not fb_categories:
+                break
+            fb_attempts += 1
+            cat = fb_categories[rr % len(fb_categories)]
+            rr += 1
+            fb_row = self._dequeue_fallback_guest_row(cat, used_norm)
+            if not fb_row:
+                continue
+            used_norm.add(self._normalized_guest_key(fb_row[value_key]))
+            seg_type = self._resolve_segment_type(fb_row, type_key, segment_type_map)
+            if seg_type is None:
+                continue
+            dur = self._try_agent_guest_clip(
+                entry=fb_row,
+                segment_index=segment_idx,
+                type_key=type_key,
+                value_key=value_key,
+                segment_type=seg_type,
+                segment_type_map=segment_type_map,
+                segment_transition_map=segment_transition_map,
+                output_folder=output_folder,
+                background_music=segment_bg_flag(seg_type),
+                max_attempts=max_attempts,
+            )
+            if dur is not None:
+                accum_sec += dur
+                segment_idx += 1
+                logger.info(
+                    "Guest audio accumulated %.1fs / target %.1fs (fallback %s)",
+                    accum_sec,
+                    target_sec,
+                    fb_row[value_key],
+                )
+
+        if accum_sec < target_sec:
+            logger.warning(
+                "target_guest_audio_sec not reached: %.1fs of %.1fs (fallback_attempts=%s)",
+                accum_sec,
+                target_sec,
+                fb_attempts,
+            )
+
     def get_transition_map_entry(self, segment_transition_map, to_type):
         if segment_transition_map is not None and len(segment_transition_map) > 0:
             to_type = to_type.lower()
@@ -279,6 +741,12 @@ class SegmentsToTimeline:
         segment_type_map = self._segment_type_map()
         segment_transition_map = self.params.get("segment_transition_map", {})
 
+        use_agent = self.params.get("use_agent", False)
+        if use_agent and self.params.get("target_guest_audio_sec") is not None:
+            self._generate_guest_audio_target_duration()
+            return
+
+        max_attempts = int(self.params.get("guest_clip_max_attempts", 4))
         background_seen = False
         background_end_fade_ms = self.params.get("background_end_fade_ms")
         for i, entry in enumerate(self.get_data(type_key, value_key)):
@@ -286,18 +754,9 @@ class SegmentsToTimeline:
             filename = filename_prefix + ".wav"
             file_path = os.path.join(output_folder, filename)
 
-            # choose which function to execute based on segment_type_map
-            segment_type = entry[type_key].lower()
-            if segment_type not in segment_type_map:
-                if "default" not in segment_type_map:
-                    logger.warning(
-                        f"No function found for segment type: {segment_type} and no default set. Skipping segment."
-                    )
-                    continue
-                logger.warning(
-                    f"No function found for segment type: {segment_type}. Using default function."
-                )
-                segment_type = "default"
+            segment_type = self._resolve_segment_type(entry, type_key, segment_type_map)
+            if segment_type is None:
+                continue
 
             function_name = segment_type_map[segment_type].get("segment_type")
             function_arguments = segment_type_map[segment_type].get("arguments", {})
@@ -312,10 +771,29 @@ class SegmentsToTimeline:
                 )
                 continue
 
-            # Call the specified function
             logger.info(
-                f"Generating audio for type: {entry[type_key]} using function {function_name} with value: {entry[value_key]} and arguments {function_arguments}"
+                f"Generating audio for type: {entry[type_key]} "
+                f"using {'agent_search' if use_agent else function_name} "
+                f"with value: {entry[value_key]} and arguments {function_arguments}"
             )
+            if use_agent:
+                dur = self._try_agent_guest_clip(
+                    entry=entry,
+                    segment_index=i,
+                    type_key=type_key,
+                    value_key=value_key,
+                    segment_type=segment_type,
+                    segment_type_map=segment_type_map,
+                    segment_transition_map=segment_transition_map,
+                    output_folder=output_folder,
+                    background_music=background_music,
+                    max_attempts=max_attempts,
+                    background_end_fade_ms=background_end_fade_ms,
+                )
+                if dur is None:
+                    logger.info(f"No audio generated for type: {entry[type_key]}")
+                continue
+
             res = getattr(self, function_name)(
                 entry[value_key], file_path, **function_arguments
             )
@@ -324,83 +802,19 @@ class SegmentsToTimeline:
                 logger.info(f"No audio generated for type: {entry[type_key]}")
                 continue  # None indicates no audio was generated
 
-            title = (
-                res.get("title", None)
-                if res is not None and type(res) == dict
-                else None
-            )
-
-            # generate applause, if enabled for this segment
-            if (
-                segment_type_map[segment_type].get("intro_name", False)
-                and res is not None
-            ):
-                if title:
-                    intro_file_name = filename_prefix + "_intro_name.wav"
-                    intro_file_path = os.path.join(output_folder, intro_file_name)
-                    prompt = segment_type_map[segment_type].get("intro_prompt", None)
-                    if prompt and self.chat_app_object:
-                        intro_prompt = prompt + entry[value_key] + ":::" + title
-                        logger.info(f"Prompting chat app with: {intro_prompt}")
-                        intro_text = self.chat_app_object.chat(
-                            intro_prompt, strip_quotes=True
-                        )
-                    else:
-                        intro_text = "Ladies and gentlemen... {intro_text}"
-                    
-                    fast_tts = segment_type_map[segment_type].get("fast_tts", True)
-                    self.tts(intro_text, intro_file_path, fast_tts=fast_tts)
-
-                    # get transition map entry, if it exists
-                    afp_kwargs = self.get_transition_map_entry(
-                        segment_transition_map, "intro_name"
-                    )
-                    self.timeline.add_after_previous(
-                        intro_file_path,
-                        label=audioTimeline.SegmentLabel.FOREGROUND,
-                        name=f"intro_name_{i}",
-                        type="intro_name",
-                        **afp_kwargs,
-                    )
-                    logger.info(f"Generated intro name for: {intro_text}")
-
-            # generate applause, if enabled for this segment
-            if segment_type_map[segment_type].get("intro_applause", False):
-                applause_file_name = filename_prefix + "_intro_applause.wav"
-                applause_file_path = os.path.join(output_folder, applause_file_name)
-                self.applause_generator("duration 3", applause_file_path)
-
-                afp_kwargs = self.get_transition_map_entry(
-                    segment_transition_map, "intro_applause"
-                )
-                self.timeline.add_after_previous(
-                    applause_file_path,
-                    label=audioTimeline.SegmentLabel.FOREGROUND,
-                    name=f"intro_applause_{i}",
-                    type="intro_applause",
-                    **afp_kwargs,
-                )
-                logger.info(f"Generated applause")
-
-            # append the entry to the timeline
-            afp_kwargs = self.get_transition_map_entry(
-                segment_transition_map, entry[type_key]
-            )
-            logger.info(
-                f"Adding {entry[type_key]} to timeline as label {audioTimeline.SegmentLabel.BACKGROUND if background_music else audioTimeline.SegmentLabel.FOREGROUND} and args {afp_kwargs}"
-            )
-            timeline_kwargs = dict(afp_kwargs)
-            if background_music and background_end_fade_ms:
-                timeline_kwargs["end_fade_ms"] = background_end_fade_ms
-            self.timeline.add_after_previous(
-                file_path,
-                label=audioTimeline.SegmentLabel.BACKGROUND
-                if background_music
-                else audioTimeline.SegmentLabel.FOREGROUND,
-                #  name=f'{entry[type_key]}_{i}',
-                name=title if title else f"{entry[type_key]}_{i}",
-                type=entry[type_key],
-                **timeline_kwargs,
+            self._attach_guest_clip_to_timeline(
+                i=i,
+                entry=entry,
+                type_key=type_key,
+                value_key=value_key,
+                file_path=file_path,
+                res=res if isinstance(res, dict) else {},
+                segment_type=segment_type,
+                segment_type_map=segment_type_map,
+                segment_transition_map=segment_transition_map,
+                output_folder=output_folder,
+                background_music=background_music,
+                background_end_fade_ms=background_end_fade_ms,
             )
 
             if background_music:

@@ -83,19 +83,10 @@ jobs:
             YT_DLP_SOCKET_TIMEOUT: ${{ vars.YT_DLP_SOCKET_TIMEOUT }}
             YT_DLP_VERBOSE: ${{ vars.YT_DLP_VERBOSE }}
 
-      - name: Stage showRunner log for upload
-        if: always()
-        run: |
-          latest=$(find outputs -name showRunner.log -printf '%T@\t%p\n' 2>/dev/null | sort -n | tail -1 | cut -f2- || true)
-          if [ -n "${latest:-}" ] && [ -f "$latest" ]; then
-            cp "$latest" showRunner.log
-          else
-            echo "No outputs/**/showRunner.log found" > showRunner.log
-          fi
-
-      - name: Upload log file
+      - name: Upload ShowRunner logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: log-file
-          path: showRunner.log
+          name: show-runner-logs
+          path: outputs/**/*.log
+          if-no-files-found: warn

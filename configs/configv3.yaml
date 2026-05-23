@@ -1,4 +1,9 @@
 global_params:
+  model_routing:
+    filter_model: openrouter:openai/gpt-4o-mini
+    structured_model: openrouter:openai/gpt-4o-mini
+    prose_model: openrouter:openai/gpt-4o
+
 
 plugins:
   - name: guest_selection
@@ -97,14 +102,27 @@ plugins:
     plugin: segmentsToTimeline
     class: SegmentsToTimeline
     cache: True
-    cache_buster: 7
+    cache_buster: 9
     params:
       timeline_variable: intro_audio_timeline
       segments_object: intro_guests
       segment_type_key: guest_category
       segment_value_key: guest_name
+      use_agent: True
+      # Accumulate guest clips until this many seconds (then optional queue fallbacks below).
+      target_guest_audio_sec: 2400
+      guest_clip_max_attempts: 4
+      guest_replace_on_primary_failure: true
+      guest_fallback_max_attempts: 48
+      guest_fallback_queue_key_prefix: guest_selection_
+      guest_fallback_categories:
+        - music
+        - comedy
+        - author
+        - actor
+        - improv
       segment_type_map:
-        default: &default
+        default:
           segment_type: youtube_search
           intro_name: True
           fast_tts: False
@@ -120,57 +138,7 @@ plugins:
             duration_min_sec: 300
             duration_max_sec: 660
             video_ids_supaset_autoexpire_days: 90
-        music: 
-          <<: *default
-          segment_type: youtube_search
-          arguments:
-            additional_query_text: "live performance"
-            duration_search_filter: medium
-            duration_min_sec: 180
-            duration_max_sec: 7200
-            truncation_duration_sec: 600
-            use_music_search: True
-        comedy:
-          <<: *default
-          segment_type: youtube_search
-          arguments:
-            additional_query_text: ("stand up"|"live from here")
-            duration_search_filter: medium
-            duration_min_sec: 300
-            duration_max_sec: 660
-            description_filters:
-              - female
-        author: &author
-          <<: *default
-          arguments:
-            additional_query_text: (interview|monologue|story|reading|"live from here")
-            duration_search_filter: medium
-            duration_min_sec: 300
-            duration_max_sec: 660
-            llm_filter_prompt: &llm_filter_prompt >
-              Can you tell me if this video title represents a video that would be appropriate for a 
-              variety show that is meant to be uplifting and simulate nostalgic feelings? I want to 
-              avoid controversial, misogynistic, and political content. You should be more lenient
-              with channels from well known sources like NPR, PBS, and the BBC as well as late night
-              talk shows.
-              
-              Make your best guess attempt and respond only with yes or no.
 
-              The title is "{{ title }}" and the channel title is "{{ channel_title }}"
-              and the description is:
-              ```
-               {{ description }}
-              ```
-        actor:
-          <<: *author
-        improv:
-          <<: *default
-          segment_type: youtube_search
-          arguments:
-            additional_query_text:  ("comedy bang bang"|"improv scene"|"improv4humans"|"Spontaneanation")
-            duration_search_filter: medium
-            duration_min_sec: 300
-            duration_max_sec: 900
 
   - name: story
     plugin: promptToSegment

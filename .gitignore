@@ -68,6 +68,9 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Agent eval runs (longitudinal JSON); keep directory via .gitkeep
+evals/results/*.json
+
 # Translations
 *.mo
 *.pot

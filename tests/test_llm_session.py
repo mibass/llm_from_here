@@ -12,7 +12,7 @@ class _Mini(BaseModel):
 
 
 class TestLlmSession(unittest.TestCase):
-    @patch("llm_from_here.llm_session._openrouter_model")
+    @patch("llm_from_here.llm_session.OpenRouterModel")
     @patch("llm_from_here.llm_session.Agent")
     def setUp(self, mock_agent_cls, _mock_or_model):
         self.mock_agent_cls = mock_agent_cls
@@ -65,22 +65,38 @@ class TestLlmSession(unittest.TestCase):
 
     @patch("llm_from_here.llm_session.OpenRouterModel")
     @patch("llm_from_here.llm_session.is_openrouter_free_mode", return_value=True)
-    def test_openrouter_model_free_mode_disables_required_tool_choice(self, mock_free, mock_or_model):
-        from llm_from_here.llm_session import _openrouter_model
-
-        _openrouter_model("openrouter/free")
+    def test_resolve_agent_backend_free_mode_disables_required_tool_choice(
+        self, _mock_free, mock_or_model
+    ):
+        LlmSession._resolve_agent_backend(None)
         mock_or_model.assert_called_once()
         kwargs = mock_or_model.call_args.kwargs
         self.assertFalse(kwargs["profile"].openai_supports_tool_choice_required)
 
-    @patch("llm_from_here.llm_session._openrouter_model")
+
+class TestLlmSessionModelSlug(unittest.TestCase):
+    @patch("llm_from_here.llm_session.OpenRouterModel")
     @patch("llm_from_here.llm_session.Agent")
-    def test_model_slug_override(self, mock_agent_cls, mock_or_model):
-        mock_agent = MagicMock()
-        mock_agent_cls.return_value = mock_agent
-        s = LlmSession("Hi", model_slug="openai/gpt-4o-mini")
-        self.assertEqual(s.chat_model_slug, "openai/gpt-4o-mini")
-        mock_or_model.assert_called_once_with("openai/gpt-4o-mini")
+    def test_model_slug_passes_string_to_agent_for_ollama(self, mock_agent_cls, mock_or_model):
+        mock_agent_cls.return_value = MagicMock()
+        LlmSession("Hello", model_slug="ollama:qwen3:8b")
+        mock_or_model.assert_not_called()
+        first_arg = mock_agent_cls.call_args[0][0]
+        self.assertEqual(first_arg, "ollama:qwen3:8b")
+
+    @patch("llm_from_here.llm_session.log_free_mode_startup")
+    @patch("llm_from_here.llm_session.get_openrouter_chat_model", return_value="deepseek/deepseek-chat")
+    @patch("llm_from_here.llm_session.OpenRouterModel")
+    @patch("llm_from_here.llm_session.Agent")
+    def test_openrouter_prefix_uses_openrouter_model(
+        self, mock_agent_cls, mock_or_model, _mock_get_slug, _mock_log_free
+    ):
+        mock_agent_cls.return_value = MagicMock()
+        fake_or = MagicMock(name="ORM")
+        mock_or_model.return_value = fake_or
+        LlmSession("", model_slug="openrouter:anthropic/claude-3.5-haiku")
+        mock_or_model.assert_called_once_with("anthropic/claude-3.5-haiku")
+        self.assertIs(mock_agent_cls.call_args[0][0], fake_or)
 
 
 if __name__ == "__main__":

@@ -112,8 +112,10 @@ class SegmentAudio():
                         f"No function found for segment type: {segment_type} and no default set")
                     raise Exception(
                         f"No function found for segment type: {segment_type} and no default set")
-                logger.warning(
-                    f"No function found for segment type: {segment_type}. Using default function.")
+                logger.debug(
+                    "No segment_type_map entry for %r; using default.",
+                    segment_type,
+                )
                 segment_type = 'default'
                 
             function_name = segment_type_map[segment_type].get('segment_type')

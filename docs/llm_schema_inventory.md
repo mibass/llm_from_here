@@ -11,3 +11,4 @@ YAML JSON Schema blocks were replaced by Pydantic models in `src/llm_from_here/s
 | ImprovAgent setup / judge / SFX selection | `SceneSetup`, `TurnJudgement`, `SfxJudgement` in `schemas/improv_outputs.py` | `improvAgent.py` via `LlmSession.run_structured` |
 | Story plugin (`configs/configv3.yaml` `story` promptToSegment) | `StoryScript` | `promptToSegment.py` via `run_structured` + `story_to_segments` |
 | Outro plugin (`configs/configv3.yaml` `outro` promptToSegment) | `OutroScript` | `promptToSegment.py` via `run_structured` + `outro_to_segments` |
+| Guest agent tool payloads (`guest_agent.py`) | `VideoResult` (search rows), `GuestSegment` (final pick) | `src/llm_from_here/models/guest_models.py` · `agents/guest_agent.py` · `segmentsToTimeline.agent_search` |

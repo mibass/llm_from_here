@@ -20,10 +20,12 @@ class TestBracketHelpers(unittest.TestCase):
         self.assertNotIn("[", _strip_bracket_cues(s))
 
 
+@patch("llm_from_here.plugins.improvAgent.LlmSession")
 @patch("llm_from_here.plugins.improvAgent.FreeSoundFetch")
 class TestImprovAgentBuildMap(unittest.TestCase):
-    def test_build_segment_type_map(self, mock_fs: MagicMock) -> None:
+    def test_build_segment_type_map(self, mock_fs: MagicMock, mock_llm: MagicMock) -> None:
         mock_fs.return_value = MagicMock()
+        mock_llm.return_value = MagicMock()
         params = {
             "character_slots": [
                 {"model": "openai/gpt-4o-mini", "tts_voice": "nova"},
