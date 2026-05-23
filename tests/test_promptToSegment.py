@@ -5,6 +5,20 @@ from llm_from_here.plugins.promptToSegment import PromptToSegment
 
 
 class TestPromptToSegment(unittest.TestCase):
+    def setUp(self):
+        self._or_patch = patch(
+            "llm_from_here.llm_session.OpenRouterModel", return_value=MagicMock()
+        )
+        self._agent_patch = patch(
+            "llm_from_here.llm_session.Agent", return_value=MagicMock()
+        )
+        self._or_patch.start()
+        self._agent_patch.start()
+
+    def tearDown(self):
+        self._agent_patch.stop()
+        self._or_patch.stop()
+
     def test_normalize_segments_puts_background_first_and_drops_title(self):
         pts = PromptToSegment({"convert_script_to_segments": False}, {}, "story")
         pts.segments = [
