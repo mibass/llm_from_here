@@ -9,7 +9,7 @@ from typing import Any, cast
 
 import yaml
 from pydantic import BaseModel
-from pydantic_ai import Agent
+from pydantic_ai import Agent, AgentRetries
 from pydantic_ai.messages import ModelMessagesTypeAdapter
 from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.output import NativeOutput
@@ -56,8 +56,7 @@ class LlmSession:
             resolved,
             system_prompt=(system_message,) if system_message else (),
             output_type=str,
-            retries=3,
-            output_retries=5,
+            retries=AgentRetries(tools=3, output=5),
         )
 
     @staticmethod
@@ -100,8 +99,7 @@ class LlmSession:
             resolved,
             system_prompt=(self.system_message,) if self.system_message else (),
             output_type=str,
-            retries=3,
-            output_retries=5,
+            retries=AgentRetries(tools=3, output=5),
         )
 
     def _message_history(self) -> list[Any] | None:
