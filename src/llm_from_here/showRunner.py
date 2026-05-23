@@ -20,14 +20,27 @@ import uuid
 # load env variables
 load_dotenv()  # take environment variables from .env.
 
-# Set up logging
-logging.basicConfig(filename='showRunner.log', level=logging.INFO,
-                    format='%(asctime)s:%(name)s:%(levelname)s:%(message)s')
-if os.getenv("LLMFH_SHOWRUNNER_LOG_STDOUT", "").strip().lower() in ("1", "true", "yes", "on"):
-    _sh = logging.StreamHandler(sys.stderr)
-    _sh.setFormatter(logging.Formatter("%(asctime)s:%(name)s:%(levelname)s:%(message)s"))
-    logging.getLogger().addHandler(_sh)
+_log_format = "%(asctime)s:%(name)s:%(levelname)s:%(message)s"
+
+
+def _configure_output_logging(output_folder: str) -> None:
+    """Send run logs to ``{output_folder}/showRunner.log`` (and optional stderr)."""
+    log_path = os.path.join(output_folder, "showRunner.log")
+    fmt = logging.Formatter(_log_format)
+    handlers: list[logging.Handler] = []
+    fh = logging.FileHandler(log_path, encoding="utf-8")
+    fh.setFormatter(fmt)
+    handlers.append(fh)
+    if os.getenv("LLMFH_SHOWRUNNER_LOG_STDOUT", "").strip().lower() in ("1", "true", "yes", "on"):
+        sh = logging.StreamHandler(sys.stderr)
+        sh.setFormatter(fmt)
+        handlers.append(sh)
+    logging.basicConfig(level=logging.INFO, handlers=handlers, force=True)
+
+
 logger = logging.getLogger(__name__)
+
+
 def _log_context(run_id, plugin_name, phase, message, level="info"):
     context = f"run_id={run_id} plugin={plugin_name} phase={phase}"
     log_message = f"{context} message={message}"
@@ -100,13 +113,6 @@ def plugin_cache_entry_hash(entry, global_results):
 
 def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
     global global_results
-    if clear_cache:
-        plugin_cache.clear()
-        logger.info(
-            "Plugin result cache cleared (%s).",
-            os.path.join(cache_dir, "cache.pickle"),
-        )
-
     data = load_yaml(yaml_file)
 
     # Create unique outputs folder based on show parameter
@@ -121,6 +127,15 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
     # create the folder, if it doesn't exist
     output_folder = os.path.join(outputs_dir, f"{show_name}_run{run_count}")
     os.makedirs(output_folder, exist_ok=True)
+    _configure_output_logging(output_folder)
+
+    if clear_cache:
+        plugin_cache.clear()
+        logger.info(
+            "Plugin result cache cleared (%s).",
+            os.path.join(cache_dir, "cache.pickle"),
+        )
+
     global_results['output_folder'] = output_folder
     global_results['run_id'] = run_id
     

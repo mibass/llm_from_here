@@ -18,7 +18,7 @@ yaml_string = """
           background_music: True
           arguments:
             playlist_id: PLE3cjj4L4BWgu8nQtMYbNrGdUA7mpbOKk
-        chris thile:
+        dris thile:
           segment_type: fast_TTS
         audience:
           segment_type: applause_generator
@@ -91,7 +91,7 @@ class TestSegmentsToTimeline(unittest.TestCase):
     def test_generate_audio_segments(self):
         data = [
             {'speaker': 'music', 'dialog': 'music1'},
-            {'speaker': 'chris thile', 'dialog': 'dialog1'},
+            {'speaker': 'dris thile', 'dialog': 'dialog1'},
             {'speaker': 'audience', 'dialog': 'dialog2'},
         ]
         self.mock_global_results['intro_intro'] = data
@@ -118,10 +118,82 @@ class TestSegmentsToTimeline(unittest.TestCase):
             'dialog2', os.path.join(output_folder, 'test_instance_002.wav'))
         self.stt.fast_TTS.assert_called_once_with(
             'dialog1', os.path.join(output_folder, 'test_instance_001.wav'))
-        self.stt.youtube_playlist.assert_called_once()
 
-        # Clean up the temporary directory
+    def test_generate_audio_segments_dris_thile(self):
+        """Intro schema canonicalizes host as Dris Thile; YAML keys must be lowercase."""
+        data = [
+            {"speaker": "Music", "dialog": "[MUSIC folk intro bed]"},
+            {"speaker": "Dris Thile", "dialog": "Welcome to the show."},
+            {"speaker": "Audience", "dialog": "[APPLAUSE duration 5]"},
+        ]
+        params = {
+            **self.mock_params,
+            "segment_type_map": {
+                "music": {
+                    "segment_type": "youtube_playlist",
+                    "background_music": True,
+                    "arguments": {"playlist_id": "PL123"},
+                },
+                "dris thile": {"segment_type": "slow_TTS"},
+                "audience": {"segment_type": "applause_generator"},
+            },
+        }
+        self.mock_global_results["intro_intro"] = data
+        output_folder = self.mock_global_results["output_folder"]
+        stt = SegmentsToTimeline(
+            params, self.mock_global_results, self.mock_plugin_instance_name
+        )
+        stt.slow_TTS = MagicMock(return_value={})
+        stt.applause_generator = MagicMock(return_value=True)
+        stt.youtube_playlist = MagicMock(return_value={"title": "bg"})
+        stt.timeline = MagicMock()
+        stt.generate_audio_segments()
+        stt.youtube_playlist.assert_called_once()
+        stt.slow_TTS.assert_called_once_with(
+            "Welcome to the show.",
+            os.path.join(output_folder, "test_instance_001.wav"),
+        )
         shutil.rmtree(output_folder)
+
+    def test_single_background_not_blocked_by_foreground_first(self):
+        """Foreground segments before background must not mark background_seen early."""
+        params = {
+            "segments_object": "segments",
+            "segment_type_key": "speaker",
+            "segment_value_key": "dialog",
+            "single_background": True,
+            "segment_type_map": {
+                "background": {
+                    "segment_type": "youtube_search",
+                    "background_music": True,
+                    "arguments": {},
+                },
+                "default": {"segment_type": "slow_TTS"},
+            },
+        }
+        output_folder = tempfile.mkdtemp()
+        global_results = {
+            "segments": [
+                {"speaker": "character 1", "dialog": "Opening line"},
+                {"speaker": "background", "dialog": "folk"},
+            ],
+            "output_folder": output_folder,
+        }
+        stt = SegmentsToTimeline(params, global_results, "story_audio")
+        stt.slow_TTS = MagicMock()
+        stt.youtube_search = MagicMock(return_value={"title": "bg track"})
+        stt.timeline = MagicMock()
+
+        try:
+            stt.generate_audio_segments()
+            stt.slow_TTS.assert_called_once()
+            stt.youtube_search.assert_called_once_with(
+                "folk",
+                os.path.join(output_folder, "story_audio_001.wav"),
+                **{},
+            )
+        finally:
+            shutil.rmtree(output_folder)
 
     @patch('llm_from_here.plugins.audioTimeline.AudioTimeline')
     def test_execute(self, mock_audio_timeline):
@@ -147,6 +219,80 @@ class TestSegmentsToTimeline(unittest.TestCase):
             mock_showTTS.assert_called_once_with()
             mock_showTTS.return_value.speak.assert_called_once_with(expected_filtered_text, test_output_file, fast=True)
 
+    @patch("llm_from_here.plugins.segmentsToTimeline.is_lyria_enabled", return_value=True)
+    @patch("llm_from_here.plugins.segmentsToTimeline.is_openrouter_free_mode", return_value=False)
+    @patch("llm_from_here.plugins.segmentsToTimeline.generate_instrumental")
+    def test_music_generator_openrouter_calls_lyria(self, mock_generate, mock_free, mock_lyria):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out = os.path.join(temp_dir, "bg.wav")
+            cue = "[MUSIC Create an approximately 3 minute folk intro. Instrumental only, no vocals.]"
+            mock_generate.return_value = {"source": "openrouter_lyria"}
+            res = self.stt.music_generator_openrouter(
+                cue,
+                out,
+                fallback_segment_type="youtube_playlist",
+                playlist_id="PL123",
+            )
+            mock_generate.assert_called_once_with(cue, out)
+            self.assertEqual(res["source"], "openrouter_lyria")
+
+    @patch("llm_from_here.plugins.segmentsToTimeline.is_openrouter_free_mode", return_value=True)
+    @patch("llm_from_here.plugins.segmentsToTimeline.generate_instrumental")
+    def test_music_generator_openrouter_free_mode_uses_fallback(self, mock_generate, mock_free):
+        self.stt.youtube_playlist = MagicMock(return_value={"title": "fallback"})
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out = os.path.join(temp_dir, "bg.wav")
+            cue = "[MUSIC Create an approximately 3 minute folk intro. Instrumental only, no vocals.]"
+            res = self.stt.music_generator_openrouter(
+                cue,
+                out,
+                fallback_segment_type="youtube_playlist",
+                playlist_id="PL123",
+            )
+            mock_generate.assert_not_called()
+            self.stt.youtube_playlist.assert_called_once()
+            self.assertEqual(res["title"], "fallback")
+
+    @patch("llm_from_here.plugins.segmentsToTimeline.is_lyria_enabled", return_value=False)
+    @patch("llm_from_here.plugins.segmentsToTimeline.is_openrouter_free_mode", return_value=False)
+    @patch("llm_from_here.plugins.segmentsToTimeline.generate_instrumental")
+    def test_music_generator_openrouter_lyria_disabled_uses_fallback(self, mock_generate, mock_free, mock_lyria):
+        self.stt.youtube_playlist = MagicMock(return_value={"title": "fallback"})
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out = os.path.join(temp_dir, "bg.wav")
+            cue = "[MUSIC Create a 180-second folk intro. Instrumental only, no vocals.]"
+            res = self.stt.music_generator_openrouter(
+                cue,
+                out,
+                fallback_segment_type="youtube_playlist",
+                playlist_id="PL123",
+            )
+            mock_generate.assert_not_called()
+            self.stt.youtube_playlist.assert_called_once()
+            self.assertEqual(res["title"], "fallback")
+
+    @patch("llm_from_here.plugins.segmentsToTimeline.is_lyria_enabled", return_value=True)
+    @patch("llm_from_here.plugins.segmentsToTimeline.is_openrouter_free_mode", return_value=False)
+    @patch("llm_from_here.plugins.segmentsToTimeline.generate_instrumental", side_effect=RuntimeError("api down"))
+    def test_music_generator_openrouter_failure_falls_back_to_youtube_search(self, mock_generate, mock_free, mock_lyria):
+        self.stt.youtube_search = MagicMock(return_value={"title": "yt"})
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out = os.path.join(temp_dir, "bg.wav")
+            cue = (
+                "[background: Create an approximately 3 minute acoustic folk underscore. "
+                "Fingerpicked guitar, ~88 BPM. Instrumental only, no vocals.]"
+            )
+            res = self.stt.music_generator_openrouter(
+                cue,
+                out,
+                fallback_segment_type="youtube_search",
+                additional_query_text="instrumental live",
+                use_music_search=True,
+            )
+            self.stt.youtube_search.assert_called_once()
+            search_args = self.stt.youtube_search.call_args[0]
+            self.assertLessEqual(len(search_args[0]), 80)
+            self.assertEqual(res["title"], "yt")
 
 
 if __name__ == '__main__':

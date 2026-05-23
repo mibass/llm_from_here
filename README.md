@@ -109,10 +109,11 @@ Optional flags:
 
 ```
 --clear-cache: Use this flag to clear the plugin cache before execution.
---output-dir: Use this flag to specify the directory where outputs should be stored. Default is ./outputs.
+--output-dir: Base directory for runs; each run is written to ``{output_dir}/{show_name}_runN/``.
+              Default is ./outputs. Logs go to ``{output_dir}/{show_name}_runN/showRunner.log``.
 ```
 
-Set `LLMFH_SHOWRUNNER_LOG_STDOUT=1` to mirror `showRunner.log` lines to stderr (helpful when piping output).
+Set `LLMFH_SHOWRUNNER_LOG_STDOUT=1` to mirror the run log to stderr as well (helpful when piping output).
 
 Make sure to provide the path to your YAML configuration file. The script will execute plugins defined in the YAML file, store results in the output folder, and log the execution details.
 

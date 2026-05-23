@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Run ShowRunner with --clear-cache; kill + retry if intro repeats the same guest multiset
-as the latest lineup prior to this invocation (detected via showRunner.log).
+as the latest lineup prior to this invocation (detected via showRunner.log under outputs/).
 """
 from __future__ import annotations
 
@@ -10,9 +10,24 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOG = os.path.join(REPO, "showRunner.log")
+OUTPUTS_DIR = os.environ.get("LLMFH_SHOWRUNNER_OUTPUT_DIR", os.path.join(REPO, "outputs"))
+
+
+def iter_showrunner_logs(outputs_dir: str) -> list[str]:
+    base = Path(outputs_dir)
+    if not base.is_dir():
+        return []
+    return sorted(str(p) for p in base.rglob("showRunner.log") if p.is_file())
+
+
+def newest_log_path(outputs_dir: str) -> str | None:
+    paths = iter_showrunner_logs(outputs_dir)
+    if not paths:
+        return None
+    return max(paths, key=lambda p: os.path.getmtime(p))
 
 
 def line_count(path: str) -> int:
@@ -40,15 +55,25 @@ def fingerprint_intro_guests_after(path: str, min_line: int) -> tuple[str, ...] 
     return latest
 
 
-def last_fingerprint(path: str) -> tuple[str, ...] | None:
-    return fingerprint_intro_guests_after(path, 0)
+def last_fingerprint(outputs_dir: str) -> tuple[str, ...] | None:
+    log = newest_log_path(outputs_dir)
+    if not log:
+        return None
+    return fingerprint_intro_guests_after(log, 0)
+
+
+def new_run_log(outputs_dir: str, before: frozenset[str]) -> str | None:
+    new = [p for p in iter_showrunner_logs(outputs_dir) if p not in before]
+    if not new:
+        return None
+    return max(new, key=lambda p: os.path.getmtime(p))
 
 
 def main() -> int:
     yaml_rel = sys.argv[1] if len(sys.argv) > 1 else "configs/configv3.yaml"
     yaml_path = yaml_rel if os.path.isabs(yaml_rel) else os.path.join(REPO, yaml_rel)
 
-    avoid = last_fingerprint(LOG)
+    avoid = last_fingerprint(OUTPUTS_DIR)
     print("Baseline lineup fingerprint (sorted guest names, multiset):", avoid)
 
     max_attempts = int(os.environ.get("LLMFH_MAX_GUEST_RETRY", "25"))
@@ -56,8 +81,8 @@ def main() -> int:
     per_attempt_deadline_sec = float(os.environ.get("LLMFH_ATTEMPT_DEADLINE_SEC", str(3 * 3600)))
 
     for attempt in range(1, max_attempts + 1):
-        lines_before = line_count(LOG)
-        print(f"\n=== Attempt {attempt}/{max_attempts} (log lines before: {lines_before}) ===")
+        before_logs = frozenset(iter_showrunner_logs(OUTPUTS_DIR))
+        print(f"\n=== Attempt {attempt}/{max_attempts} (known log files before: {len(before_logs)}) ===")
 
         proc = subprocess.Popen(
             [
@@ -68,12 +93,16 @@ def main() -> int:
                 "llm_from_here.showRunner",
                 yaml_path,
                 "--clear-cache",
+                "--output-dir",
+                OUTPUTS_DIR,
             ],
             cwd=REPO,
         )
 
         start = time.monotonic()
         guest_fp: tuple[str, ...] | None = None
+        run_log: str | None = None
+        min_line = 0
 
         while proc.poll() is None:
             if time.monotonic() - start > per_attempt_deadline_sec:
@@ -87,7 +116,13 @@ def main() -> int:
                 break
 
             time.sleep(poll_sec)
-            guest_fp = fingerprint_intro_guests_after(LOG, lines_before)
+            if run_log is None:
+                run_log = new_run_log(OUTPUTS_DIR, before_logs)
+                if run_log is None:
+                    continue
+                min_line = line_count(run_log)
+
+            guest_fp = fingerprint_intro_guests_after(run_log, min_line)
             if guest_fp is None:
                 continue
 

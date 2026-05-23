@@ -72,7 +72,7 @@ class IntroFromGuestlist:
                 raise Exception(f"Required parameter {required_param} not found in params.")
             
     def get_extra_prompt_responses(self):
-        extra_prompts = self.params.get('extra_prompts', [{}])
+        extra_prompts = self.params.get('extra_prompts', [])
         extra_prompt_responses = {}
         for prompt in extra_prompts:
             logger.info(f"Running extra_prompt: {prompt}")

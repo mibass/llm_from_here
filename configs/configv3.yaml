@@ -20,46 +20,35 @@ plugins:
         You are a big shot new york live show producer, writer, and performer. 
         You are current the show runner for the Live From There show and are calling all the shots. 
         You are very emotional and nostalgic and like to listen to music, podcasts, npr, and long-form improv comedy.
+        The host is Dris Thile. Write in his voice—warm, witty, musicianly—like Chris Thile on Live From Here,
+        but always use the name Dris Thile in the script and speaker tags, never Chris.
 
       script_prompt: >
-        Write a script for the intro to be read Verbatim by Dris Tahiti.  
+        Write a script for the intro to be read Verbatim by Dris Thile.  
         Dris should announce these guests: {{ guests }}.
         This intro segment should be about 5 minutes long and end with Dris announcing the guests.  
         Applause breaks and duration should be added and denoted with [APPLAUSE duration x] where x is in seconds and could be between 3 and 6 seconds, for example:
           [APPLAUSE 5 seconds]
-        A musical background will be played by Dris and the band underneath his introduction, this should be described and denoted in the script with [BACKGROUND MUSIC] and should occur only once at the beginning, and with one or more of the descriptors bluegrass, folk, country, rock, jazz, classical, post-rock. For example :
+        A musical background will be played by Dris and the band underneath his introduction, this should be described and denoted in the script with [BACKGROUND MUSIC] and should occur only once at the beginning, and with one or more of the descriptors bluegrass, folk, country, jazz, classical. For example :
           [BACKGROUND MUSIC: bluegrass]
 
       json_script_prompt: >
         Now take that intro and format it into a structured line-by-line script.
         Each line of dialog should be one entry with speaker and dialog text.
-        Background music should get its own cue with speaker name Music and dialog of [MUSIC <music_type>], for example [MUSIC bluegrass].
+        Background music should get its own cue with speaker name Music. The dialog must be
+        [MUSIC <full music generation prompt>] where the prompt describes a 180-second live
+        instrumental for the show intro (max 184 seconds): genre (pick one: bluegrass, folk, country,
+        jazz, classical), specific instruments, mood, BPM (e.g. 90 BPM), and must
+        end with "Instrumental only, no vocals." Do not name real artists or bands.
+        Example:
+        [MUSIC Create a 180-second instrumental track at 110 BPM. Live acoustic bluegrass intro.
+        Banjo, mandolin, upright bass, brushed drums, warm and energetic. Instrumental only, no vocals.]
         There should be only one music cue, and it should be first.
         Applause breaks should get their own entry with speaker name Audience and dialog of [APPLAUSE duration x], for example [APPLAUSE duration 10].
         The only valid values for speaker are Music, Dris Thile, and Audience.
         Choose only one music cue and make it the first speaker.
         Respond with a JSON object that has a single key "lines" whose value is an array of objects,
         each object having string fields "speaker" and "dialog" only.
-
-      extra_prompts:
-        # - name: story
-        #   prompt: > 
-        #     Now generate a story for Dris to tell. The story could be about anything but feel like it's about nothing and everything. The topic should seem fairly random and non-obvious. It should be told in the first-person. The story should be at least 5 paragraphs long and last no more than 5 minutes when read aloud. It should generate some emotion in the listener of joy, regret, nostalgia, and/or elation.
-        #     It should never begin with Once upon a time. Dris should never directly mention the emotions he is trying to evoke. Avoid stories where nothing actually happens. 
-        #     He should talk to someone, see something happen, and make something happen in each story. He should relay at least one short conversation he had.
-        #     Use a lot of contractions often and as many colloquialisms as possible.
-        #     You do not speak, just tell the story.
-        - name: outro
-          prompt: >
-            Now write an outro for Dris to read. 
-            It should be about 1 to 2 minutes long and should include a call to action for the audience to do something. 
-            It should be a single paragraph and should be written in the first person.
-            It should thank the guests.
-            Applause breaks and duration should be added and denoted with [APPLAUSE duration x] where x is in seconds and could be between 3 and 6 seconds, for example:
-              [APPLAUSE 5 seconds]
-            A musical background will be played by Dris and the band underneath his introduction, this should be described and denoted in the script with [BACKGROUND MUSIC] and should occur only once at the beginning, and with one or more of the descriptors bluegrass, folk, country, rock, jazz, classical, post-rock. For example :
-              [BACKGROUND MUSIC: bluegrass]
-              [BACKGROUND MUSIC: post-rock]
 
    
   - name: intro_audio
@@ -74,11 +63,14 @@ plugins:
       single_background: True
       segment_type_map:
         music:
-          segment_type: youtube_playlist
+          segment_type: music_generator_openrouter
           background_music: True
           arguments:
+            fallback_segment_type: youtube_playlist
             playlist_id: PLE3cjj4L4BWgu8nQtMYbNrGdUA7mpbOKk
-        chris thile:
+        dris thile:
+          segment_type: slow_TTS
+        default:
           segment_type: slow_TTS
         audience:
           segment_type: applause_generator
@@ -91,9 +83,9 @@ plugins:
             music:
               gain: -15 #background music gain
         - audience:
-            chris thile:
+            dris thile:
               overlay_percentage: 25
-        - chris thile:
+        - dris thile:
             audience:
               overlay_duration: 1
               gain: -5
@@ -135,7 +127,8 @@ plugins:
             additional_query_text: "live performance"
             duration_search_filter: medium
             duration_min_sec: 180
-            duration_max_sec: 600
+            duration_max_sec: 7200
+            truncation_duration_sec: 600
             use_music_search: True
         comedy:
           <<: *default
@@ -178,19 +171,89 @@ plugins:
             duration_search_filter: medium
             duration_min_sec: 300
             duration_max_sec: 900
+
+  - name: story
+    plugin: promptToSegment
+    class: PromptToSegment
+    cache: True
+    params:
+      chat_app_variable: intro_chat_app
+      convert_script_to_segments: false
+      prompts:
+        - prompt: >
+            Generate a first-person story for Dris to tell on Live From There. The story could be about
+            anything but feel like it's about nothing and everything. The topic should seem fairly random
+            and non-obvious. It should be told in the first person. The story should be at least 5 paragraphs
+            long and last no more than 5 minutes when read aloud. It should generate some emotion in the
+            listener of joy, regret, nostalgia, and/or elation. It should never begin with Once upon a time.
+            Dris should never directly mention the emotions he is trying to evoke. Avoid stories where
+            nothing actually happens. He should talk to someone, see something happen, and make something
+            happen in each story. He should relay at least one short conversation he had. Use a lot of
+            contractions and colloquialisms. No title line, no headings, no markdown.
+            Return structured fields only:
+            music_prompt — a 180-second instrumental underscore matching the story tone (max 184 seconds);
+            pick genre from bluegrass, folk, country, rock, jazz, classical, or post-rock; include specific
+            instruments, mood, BPM (e.g. 85 BPM), and "Instrumental only, no vocals." Do not name real artists.
+            paragraphs — at least 5 narrator paragraphs (plain text only).
+            applause_duration_sec — integer between 3 and 6 for the closing applause.
+          output_model: llm_from_here.schemas.story_outputs:StoryScript
+          segment_mapper: llm_from_here.schemas.story_outputs:story_to_segments
+
+  - name: story_audio
+    plugin: segmentsToTimeline
+    class: SegmentsToTimeline
+    cache: True
+    cb: 3
+    params:
+      timeline_variable: guests_audio_timeline
+      segments_object: story_segments
+      segment_type_key: speaker
+      segment_value_key: dialog
+      single_background: True
+      background_end_fade_ms: 3000
+      segment_type_map:
+        background:
+          segment_type: music_generator_openrouter
+          background_music: True
+          arguments:
+            fallback_segment_type: youtube_search
+            additional_query_text: instrumental live
             use_music_search: True
+            truncation_duration_sec: 600
+        default:
+          segment_type: slow_TTS
+        audience:
+          segment_type: applause_generator
+      segment_transition_map:
+        - any:
+            background:
+              gain: -15
+              fade_in: 4000
+        - background:
+            character 1:
+              overlay_percentage: 15
+        - audience:
+            any:
+              overlay_percentage: 25
+        - any:
+            audience:
+              overlay_duration: 1
+              gain: -5
+              gain_match: True
+              fade_out: 500
 
   - name: instrumental
     plugin: segmentsToTimeline
     class: SegmentsToTimeline
     cache: True
-    cb: 17
+    cb: 19
     params:
-      timeline_variable: guests_audio_timeline
+      timeline_variable: story_audio_timeline
       segment_type_map:
         music:
           segment_type: youtube_playlist
           intro_name: True
+          intro_applause: True
           intro_prompt: *intro_prompt
           fast_tts: False
           arguments:
@@ -202,8 +265,20 @@ plugins:
     class: PromptToSegment
     cache: True
     params:
-      script_variable: intro_extra_prompt_responses.outro
-      is_dialog: True
+      chat_app_variable: intro_chat_app
+      convert_script_to_segments: false
+      prompts:
+        - prompt: >
+            Write a 1–2 minute first-person outro for Dris to read on Live From There. Include a call to
+            action for the audience. Thank the guests from tonight's show. Embed [APPLAUSE duration N]
+            cues in the dialog where applause breaks belong (N between 3 and 6 seconds).
+            Return structured fields only:
+            music_prompt — a 180-second instrumental bed for the outro (max 184 seconds); pick genre
+            from bluegrass, folk, country, rock, jazz, classical, or post-rock; include instruments, mood,
+            BPM (e.g. 90 BPM), and "Instrumental only, no vocals." Do not name real artists.
+            dialog — a single first-person paragraph containing any inline applause cues.
+          output_model: llm_from_here.schemas.story_outputs:OutroScript
+          segment_mapper: llm_from_here.schemas.story_outputs:outro_to_segments
 
   - name: outro_audio
     plugin: segmentsToTimeline
@@ -218,12 +293,10 @@ plugins:
       single_background: True
       segment_type_map:
         background:
-          segment_type: youtube_search
+          segment_type: youtube_playlist
           background_music: True
           arguments:
-            additional_query_text: instrumental live
-            use_music_search: True
-            truncation_duration_sec: 600
+            playlist_id: PL8ufCCC-rPcv60d6yR7Sac3nRctr8hxEG
         default:
           segment_type: slow_TTS
         audience:

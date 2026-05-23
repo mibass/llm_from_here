@@ -102,7 +102,7 @@ class ShowTextToSpeech:
         self.tts_voice = get_openrouter_tts_voice()
         self._openrouter_client: openai.OpenAI | None = None
 
-    def speak(self, text, output_file, fast=False):
+    def speak(self, text, output_file, fast=False, voice=None, model=None):
         if fast or is_openrouter_free_mode():
             if is_openrouter_free_mode() and not fast:
                 logger.info(
@@ -113,7 +113,7 @@ class ShowTextToSpeech:
             self._speak_gtts(text, output_file)
         else:
             logger.info(f"Using slow TTS for text: {text}")
-            self._speak_openrouter_tts(text, output_file)
+            self._speak_openrouter_tts(text, output_file, voice=voice, model=model)
 
     def _speak_gtts(self, text, output_file):
         # fast version that uses google TTS
@@ -137,13 +137,16 @@ class ShowTextToSpeech:
             self._openrouter_client = build_openrouter_client()
         return self._openrouter_client
 
-    def _speak_openrouter_tts(self, text, output_file):
+    def _speak_openrouter_tts(self, text, output_file, voice=None, model=None):
         client = self._get_openrouter_client()
+
+        use_model = model or self.tts_model_name
+        use_voice = voice or self.tts_voice
 
         # OpenRouter validates response_format strictly (typically mp3|pcm only).
         response = client.audio.speech.create(
-            model=self.tts_model_name,
-            voice=self.tts_voice,
+            model=use_model,
+            voice=use_voice,
             input=text,
             response_format="mp3",
         )

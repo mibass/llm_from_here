@@ -61,14 +61,15 @@ class AudioTimeline:
             
         return ret
 
-    def _add_to_timeline(self, audio, start_time, label=SegmentLabel.FOREGROUND, name=None, type=None, end_time=None):
+    def _add_to_timeline(self, audio, start_time, label=SegmentLabel.FOREGROUND, name=None, type=None, end_time=None, end_fade_ms=None):
         """Add the audio segment to the timeline."""
         self.timeline.append({'audio': audio,
                               'start_time': start_time,
                               'label': label,
                               'end_time': end_time,
                               'name': name,
-                              'type': type})
+                              'type': type,
+                              'end_fade_ms': end_fade_ms})
 
     def get_last_type(self):
         """Return the last type in the timeline."""
@@ -176,7 +177,8 @@ class AudioTimeline:
         fade_out (int, optional): The duration in milliseconds of the fade-out effect.
         """
         audio = self._validate_audio(audio)
-        last_entry = self.get_last_entry()
+        prior_entry = self.timeline[-1] if self.timeline else None
+        last_fg_entry = self.get_last_entry(label=SegmentLabel.FOREGROUND)
         #extend audio to meet end time, and trim, if necessary
         logging.debug(f"Audio duration: {len(audio)} before looping")
         audio=self.loop_audio(audio, duration=duration)
@@ -184,21 +186,40 @@ class AudioTimeline:
 
         #process audio
         audio = self._trim_leading_silence(audio)
-        if last_entry and gain_match and label == SegmentLabel.FOREGROUND:
-            audio = match_target_amplitude(audio, target_dBFS=last_entry['audio'].dBFS)
+        if last_fg_entry and gain_match and label == SegmentLabel.FOREGROUND:
+            audio = match_target_amplitude(audio, target_dBFS=last_fg_entry['audio'].dBFS)
         logger.info(f"Gain is {gain}")
         audio = self._apply_gain(audio, gain)
         audio = self._apply_effects(audio, fade_in, fade_out)
         
-        logger.info(f" Overlay percentage is {overlay_percentage} and overlay duration is {overlay_duration}")
-        overlay_duration = 0
+        logger.info(
+            "Overlay percentage is %s and overlay duration is %s",
+            overlay_percentage,
+            overlay_duration,
+        )
+        computed_overlay = 0
         if overlay_duration:
-            overlay_duration = overlay_duration
-        elif overlay_percentage:
-            previous_len = last_entry['audio']
-            overlay_duration = int(len(previous_len) * (overlay_percentage / 100))
+            computed_overlay = overlay_duration
+        elif overlay_percentage and prior_entry is not None:
+            computed_overlay = int(
+                len(prior_entry['audio']) * (overlay_percentage / 100)
+            )
 
-        overlay_start_time = start_time - overlay_duration
+        overlay_start_time = start_time - computed_overlay
+        # Background→foreground transitions anchor at the last foreground end, which
+        # equals the background start. Percentage overlay must not pull narration
+        # back into the prior clip (e.g. guest audio before story).
+        if (
+            prior_entry is not None
+            and prior_entry.get('label') == SegmentLabel.BACKGROUND
+            and overlay_start_time < prior_entry['start_time']
+        ):
+            logger.info(
+                "Capping overlay start at background start_time=%s (was %s)",
+                prior_entry['start_time'],
+                overlay_start_time,
+            )
+            overlay_start_time = prior_entry['start_time']
         logging.debug(f"Overlay start time is {overlay_start_time}, overlay duration is {overlay_duration} and start time is {start_time}")
         logging.debug(f"Audio length is {len(audio)}")
         self._add_to_timeline(audio, overlay_start_time, label,
@@ -208,7 +229,7 @@ class AudioTimeline:
     def add_after_previous(self, audio, label=SegmentLabel.FOREGROUND, name=None, type=None,
                            duration=None,
                            overlay_percentage=None, overlay_duration=None, fade_in=0, fade_out=0, 
-                           gain=None, gain_match=False):
+                           gain=None, gain_match=False, end_fade_ms=None):
         """
         Add an audio segment to the timeline after the previous one.
         Optionally specify duration, overlay percentage, and fade-in and fade-out effects.
@@ -231,10 +252,11 @@ class AudioTimeline:
                                  fade_in=fade_in, fade_out=fade_out, gain=gain, gain_match=gain_match)
         elif label == SegmentLabel.BACKGROUND:
             self.add_background(audio, start_time=self.get_last_end_time(label=SegmentLabel.FOREGROUND), name=name, type=type,
-                                fade_in=fade_in, fade_out=fade_out, gain=gain, gain_match=gain_match)
+                                fade_in=fade_in, fade_out=fade_out, gain=gain, gain_match=gain_match,
+                                end_fade_ms=end_fade_ms)
 
     def add_background(self, audio, start_time=0, end_time=None, fade_in=0, fade_out=0, name=None, type=None, 
-                       gain=None, gain_match=False):
+                       gain=None, gain_match=False, end_fade_ms=None):
         """
         Add an audio segment to the background of the timeline.
 
@@ -256,7 +278,8 @@ class AudioTimeline:
         audio = self._apply_gain(audio, gain)
         audio = self._apply_effects(audio, fade_in, fade_out)
         self._add_to_timeline(
-            audio, start_time, SegmentLabel.BACKGROUND, name=name, type=type, end_time=end_time)
+            audio, start_time, SegmentLabel.BACKGROUND, name=name, type=type, end_time=end_time,
+            end_fade_ms=end_fade_ms)
 
     def set_end_times(self):
         """
@@ -336,8 +359,14 @@ class AudioTimeline:
                 logger.info(f"Rendering audio name {entry['name']} with duration {len(audio)}")
                 audio = self.loop_audio(audio, 
                                         duration=entry['end_time'] - entry['start_time'])
-                
-                
+                end_fade_ms = entry.get('end_fade_ms')
+                if end_fade_ms and entry['label'] == SegmentLabel.BACKGROUND and len(audio) > 0:
+                    fade_ms = min(int(end_fade_ms), len(audio))
+                    audio = audio.fade_out(fade_ms)
+                    logger.info(
+                        f"Applied background end fade of {fade_ms}ms on {entry['name']}"
+                    )
+
                 if entry['label'] == SegmentLabel.FOREGROUND:
                     foreground_audio=self.merge_segment(audio, 
                                    target_audio=foreground_audio,

@@ -2,6 +2,7 @@ import copy
 import glob
 import json
 import os
+import re
 import shutil
 import tempfile
 import uuid
@@ -36,6 +37,88 @@ YOUTUBE_AUDIO_FORMAT_SPEC = (
     "bestaudio[has_drm!=true]/"
     "bestaudio"
 )
+
+DEFAULT_YT_DLP_SOCKET_TIMEOUT = 60
+
+GUEST_PREFIX_RE = re.compile(
+    r"^(Band Name|Comedian|Actor|Author):\s*",
+    re.IGNORECASE,
+)
+
+_impersonation_filter_logged = False
+
+
+def strip_guest_query_prefix(query: str) -> str:
+    """Strip queue category prefix from guest search queries."""
+    return GUEST_PREFIX_RE.sub("", query).strip()
+
+
+def _is_transient_download_error(err: BaseException) -> bool:
+    msg = str(err).lower()
+    return any(
+        token in msg
+        for token in (
+            "read timed out",
+            "connection reset",
+            "connection aborted",
+            "timed out",
+        )
+    )
+
+
+def _is_impersonate_unavailable_error(err: BaseException) -> bool:
+    msg = str(err)
+    return "Impersonate target" in msg and "is not available" in msg
+
+
+def _curlcffi_handler_available() -> bool:
+    try:
+        from yt_dlp.networking._curlcffi import CurlCFFIRH  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _impersonate_target_supported(target) -> bool:
+    from yt_dlp.networking._curlcffi import CurlCFFIRH
+
+    for supported in CurlCFFIRH.supported_targets:
+        if target in supported:
+            return True
+    return False
+
+
+def _filtered_yt_dlp_fallback_overlays() -> tuple[dict, ...]:
+    """Return fallback overlays, skipping impersonate presets curl-cffi cannot use."""
+    global _impersonation_filter_logged
+    overlays = _yt_dlp_fallback_overlays()
+    if not _curlcffi_handler_available():
+        if not _impersonation_filter_logged:
+            logger.info(
+                "curl-cffi impersonation unavailable; using vanilla yt-dlp presets only",
+            )
+            _impersonation_filter_logged = True
+        return tuple(o for o in overlays if not o.get("impersonate")) or ({},)
+
+    filtered: list[dict] = []
+    skipped = 0
+    for overlay in overlays:
+        target = overlay.get("impersonate")
+        if target is not None and not _impersonate_target_supported(target):
+            skipped += 1
+            continue
+        filtered.append(overlay)
+
+    if skipped and not _impersonation_filter_logged:
+        logger.info(
+            "Skipped %s yt-dlp impersonate preset(s) not supported by curl-cffi",
+            skipped,
+        )
+        _impersonation_filter_logged = True
+
+    if not filtered or filtered[-1]:
+        filtered.append({})
+    return tuple(filtered)
 
 
 def _resolved_deno_executable() -> str | None:
@@ -267,7 +350,7 @@ def build_yt_dlp_download_attempt_opts(base_opts: dict) -> list[dict]:
     """
     if _truthy_env("YT_DLP_DISABLE_FALLBACK") or _explicit_yt_dlp_strategy_env():
         return [copy.deepcopy(base_opts)]
-    return [_merge_ydl_overlay(base_opts, o) for o in _yt_dlp_fallback_overlays()]
+    return [_merge_ydl_overlay(base_opts, o) for o in _filtered_yt_dlp_fallback_overlays()]
 
 
 def _scrub_partial_downloads(output_stem: str) -> None:
@@ -316,6 +399,7 @@ class YtFetch():
             "quiet": True,
             "noprogress": True,
             "postprocessor_args": ffmpeg_pp_args,
+            "socket_timeout": DEFAULT_YT_DLP_SOCKET_TIMEOUT,
         }
         deno_exe = _resolved_deno_executable()
         if deno_exe:
@@ -433,6 +517,29 @@ class YtFetch():
         return videos
         
     
+    def _download_with_ydl(self, attempt_opts: dict, video_url: str, max_tries: int = 3) -> None:
+        """Download with retries for transient CDN/network errors."""
+        last_err: BaseException | None = None
+        for attempt in range(max_tries):
+            try:
+                with youtube_dl.YoutubeDL(attempt_opts) as ydl:
+                    ydl.download([video_url])
+                return
+            except (DownloadError, ExtractorError, YoutubeDLError, OSError) as err:
+                last_err = err
+                if attempt + 1 < max_tries and _is_transient_download_error(err):
+                    logger.info(
+                        "Transient yt-dlp download error, retrying %s/%s: %s",
+                        attempt + 2,
+                        max_tries,
+                        err,
+                    )
+                    time.sleep(5)
+                    continue
+                raise
+        if last_err is not None:
+            raise last_err
+
     def download_audio(self, video_url, output_file, max_duration=None):
         output_file = output_file.replace(".wav", "")
         ydl_opts = self._build_youtube_audio_ydl_opts(
@@ -446,8 +553,7 @@ class YtFetch():
             if idx:
                 _scrub_partial_downloads(output_file)
             try:
-                with youtube_dl.YoutubeDL(attempt_opts) as ydl:
-                    ydl.download([video_url])
+                self._download_with_ydl(attempt_opts, video_url)
                 if idx:
                     logger.info(
                         "yt-dlp download succeeded using fallback preset %s/%s",
@@ -457,7 +563,12 @@ class YtFetch():
                 break
             except (DownloadError, ExtractorError, YoutubeDLError, OSError) as err:
                 last_err = err
-                logger.warning(
+                log = (
+                    logger.debug
+                    if _is_impersonate_unavailable_error(err)
+                    else logger.warning
+                )
+                log(
                     "yt-dlp attempt %s/%s failed: %s",
                     idx + 1,
                     len(attempts),
@@ -632,6 +743,7 @@ class YtFetch():
     def search_and_download_audio_with_duration(self, query, output_file, 
                                                 **kwargs):
         """Searches for a video within a specified duration range and downloads its audio"""
+        query = strip_guest_query_prefix(query)
         # Search for a video within the specified duration range
         video = self.search_video_with_duration(query, **kwargs)
 

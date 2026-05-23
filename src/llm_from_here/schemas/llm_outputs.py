@@ -17,14 +17,19 @@ from pydantic import BaseModel, field_validator, model_validator
 
 _SPEAKER_CANON = {
     "music": "Music",
-    "chris thile": "Chris Thile",
+    "dris thile": "Dris Thile",
     "audience": "Audience",
 }
 
-_DIALOG_RE = re.compile(
-    r"^(\[music [a-z\-]+\]|\[applause duration [0-9]+\]|.+)$",
-    re.IGNORECASE,
-)
+# Legacy LLM/cached scripts may still say "Chris Thile"; normalize to Dris.
+_SPEAKER_ALIASES = {
+    "chris thile": "dris thile",
+}
+
+_MUSIC_CUE_RE = re.compile(r"^\[MUSIC .+\]$", re.IGNORECASE)
+_APPLAUSE_CUE_RE = re.compile(r"^\[applause duration [0-9]+\]$", re.IGNORECASE)
+_MUSIC_CUE_MAX_LEN = 500
+_MUSIC_CUE_MIN_INNER_LEN = 40
 
 
 class IntroLine(BaseModel):
@@ -43,14 +48,36 @@ class IntroLine(BaseModel):
 
     @model_validator(mode="after")
     def _validate_intro_line(self) -> IntroLine:
-        key = self.speaker.strip().lower()
+        key = _SPEAKER_ALIASES.get(self.speaker.strip().lower(), self.speaker.strip().lower())
         if key not in _SPEAKER_CANON:
             raise ValueError(
-                "speaker must be Music, Chris Thile, or Audience "
+                "speaker must be Music, Dris Thile, or Audience "
                 f"(case-insensitive); got {self.speaker!r}"
             )
-        if not _DIALOG_RE.fullmatch(self.dialog):
-            raise ValueError(f"dialog format invalid for intro line: {self.dialog!r}")
+        dialog = self.dialog.strip()
+        if key == "music":
+            if not _MUSIC_CUE_RE.fullmatch(dialog):
+                raise ValueError(
+                    "Music dialog must be [MUSIC <full music generation prompt>]; "
+                    f"got {self.dialog!r}"
+                )
+            inner = re.sub(r"^\[MUSIC\s*", "", dialog, flags=re.IGNORECASE).rstrip("]")
+            if len(inner.strip()) < _MUSIC_CUE_MIN_INNER_LEN:
+                raise ValueError(
+                    "Music dialog prompt is too short; include duration, instruments, "
+                    "mood, BPM, and instrumental-only instruction"
+                )
+            if len(dialog) > _MUSIC_CUE_MAX_LEN:
+                raise ValueError(
+                    f"Music dialog exceeds {_MUSIC_CUE_MAX_LEN} characters"
+                )
+        elif key == "audience":
+            if not _APPLAUSE_CUE_RE.fullmatch(dialog):
+                raise ValueError(
+                    f"Audience dialog must be [APPLAUSE duration N]; got {self.dialog!r}"
+                )
+        elif not dialog:
+            raise ValueError(f"dialog must not be empty for speaker {self.speaker!r}")
         object.__setattr__(self, "speaker", _SPEAKER_CANON[key])
         return self
 

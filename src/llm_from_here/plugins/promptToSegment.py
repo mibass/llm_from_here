@@ -6,6 +6,7 @@ import re
 import yaml
 import fnmatch
 from llm_from_here.common import get_nested_value
+from llm_from_here.schemas.story_outputs import split_dialog_with_applause
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +20,26 @@ def _import_output_model(spec: str) -> type:
     return getattr(mod, attr)
 
 
+def _import_callable(spec: str):
+    """Import ``module.path:callable_name``."""
+    if ":" not in spec:
+        raise ValueError(f"segment_mapper must look like 'pkg.mod:func', got {spec!r}")
+    mod_name, _, attr = spec.partition(":")
+    mod = importlib.import_module(mod_name)
+    return getattr(mod, attr)
+
+
 class PromptToSegment:
     def __init__(self, params, global_params, plugin_instance_name):
-        self.chat_app =  ChatApp(params.get('system_message', ''))
+        chat_app_variable = params.get("chat_app_variable")
+        if chat_app_variable:
+            self.chat_app = global_params.get(chat_app_variable)
+            if self.chat_app is None:
+                raise Exception(
+                    f"chat_app_variable {chat_app_variable!r} not found in global results."
+                )
+        else:
+            self.chat_app = ChatApp(params.get("system_message", ""))
         self.params = params
         self.global_params = global_params
         self.plugin_instance_name = plugin_instance_name
@@ -42,7 +60,8 @@ class PromptToSegment:
         
         if self.params.get('convert_script_to_segments', True):
             if self.script == "":
-                raise Exception("Script is empty. Cannot convert to segments.")
+                if not self.segments:
+                    raise Exception("Script is empty. Cannot convert to segments.")
             else:
                 self.convert_script_to_segments()
             
@@ -87,14 +106,29 @@ class PromptToSegment:
         for line in self.script.splitlines():
             if line.strip() == "":
                 continue
-            if line.lower().startswith('[background'):
-                result = re.sub(r'\[background:', '', line, flags=re.IGNORECASE)
+            if re.match(r'\[BACKGROUND MUSIC:\s*', line, flags=re.IGNORECASE):
+                result = re.sub(
+                    r'\[BACKGROUND MUSIC:\s*', '', line, flags=re.IGNORECASE
+                )
                 result = re.sub(r'\]', '', result)
                 segment = {
                     'speaker': 'background',
-                    'dialog': result
+                    'dialog': result.strip(),
                 }
                 self.segments.append(segment)
+            elif re.match(r'\[background:\s*', line, flags=re.IGNORECASE):
+                result = re.sub(r'\[background:\s*', '', line, flags=re.IGNORECASE)
+                result = re.sub(r'\]', '', result)
+                segment = {
+                    'speaker': 'background',
+                    'dialog': result.strip()
+                }
+                self.segments.append(segment)
+            elif re.match(r'\[APPLAUSE', line, re.IGNORECASE):
+                self.segments.append({
+                    'speaker': 'audience',
+                    'dialog': line.strip(),
+                })
             elif start:= self.get_sound_effect(line):
                 segment = {
                     'speaker': 'sound effect',
@@ -125,28 +159,37 @@ class PromptToSegment:
 
         if filter_empty_dialog:
             self.segments = [segment for segment in self.segments if segment['dialog'].strip() != ""]
-                
+
+        self._normalize_segments()
+
+    def _normalize_segments(self) -> None:
+        """Drop markdown titles and put background cues first for single_background timelines."""
+        title_pattern = re.compile(r'^\*\*.+\*\*\s*$')
+        self.segments = [
+            segment
+            for segment in self.segments
+            if not (
+                segment.get("character_name") == "narrator"
+                and title_pattern.match(segment.get("dialog", "").strip())
+            )
+        ]
+        backgrounds = [s for s in self.segments if s.get("speaker") == "background"]
+        rest = [s for s in self.segments if s.get("speaker") != "background"]
+        if backgrounds:
+            self.segments = backgrounds[:1] + rest
+
     def split_dialog(self, dialog):
         """
         Split dialog into segments based on [APPLAUSE ...] cues
         """
-        applause_pattern = r'\[APPLAUSE.*?\]'
-        split = re.split(applause_pattern, dialog, flags=re.IGNORECASE)
-        for i, s in enumerate(split):
-            if s.strip() != "":
-                segment = {
-                    'speaker': 'character ' + str(self.get_character_number('narrator')),
-                    'dialog': s,
-                    'character_name': 'narrator',
-                }
-                self.segments.append(segment)
-            if i < len(split) - 1 and re.search(applause_pattern, split[i+1], flags=re.IGNORECASE):
-                applause_dialog = re.search(applause_pattern, split[i+1], flags=re.IGNORECASE).group(0)
-                segment = {
-                    'speaker': 'audience',
-                    'dialog': applause_dialog,
-                }
-                self.segments.append(segment)
+        char_num = self.get_character_number('narrator')
+        self.segments.extend(
+            split_dialog_with_applause(
+                dialog,
+                character_number=char_num,
+                character_name="narrator",
+            )
+        )
 
     def validate_required_params(self):
         required_params = []
@@ -162,6 +205,7 @@ class PromptToSegment:
             prompt_text = prompt.get('prompt', None)
             prompt_js = prompt.get("prompt_js", None)
             output_model = prompt.get("output_model")
+            segment_mapper = prompt.get("segment_mapper")
             accumulate = prompt.get('accumulate', False)
 
             if output_model:
@@ -169,8 +213,22 @@ class PromptToSegment:
                 response = self.chat_app.run_structured(
                     prompt_text, model_cls, log_prompt=True
                 )
-                if accumulate:
-                    self.segments += response
+                self.script = yaml.dump(response)
+                if segment_mapper:
+                    mapper_fn = _import_callable(segment_mapper)
+                    mapped = mapper_fn(response)
+                    if accumulate:
+                        self.segments += mapped
+                    else:
+                        self.segments = mapped
+                elif accumulate:
+                    if isinstance(response, list):
+                        self.segments += response
+                    else:
+                        raise ValueError(
+                            "accumulate with structured output requires segment_mapper "
+                            "or a list response"
+                        )
             elif prompt_js:
                 raise ValueError(
                     "prompt_js JSON Schema is no longer supported here. "

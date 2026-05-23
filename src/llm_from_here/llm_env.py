@@ -20,6 +20,11 @@ def is_openrouter_free_mode() -> bool:
     return _truthy("LLMFH_OPENROUTER_FREE_MODE")
 
 
+def is_lyria_enabled() -> bool:
+    """OpenRouter Lyria background music. Off by default; set LLMFH_LYRIA_ENABLED=1 to enable."""
+    return _truthy("LLMFH_LYRIA_ENABLED")
+
+
 def require_openrouter_api_key() -> str:
     key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not key:
@@ -61,10 +66,17 @@ def get_openrouter_tts_voice() -> str:
     return os.getenv("OPENROUTER_TTS_VOICE", "alloy").strip() or "alloy"
 
 
+def get_openrouter_music_model() -> str:
+    return (
+        os.getenv("OPENROUTER_MUSIC_MODEL", "").strip()
+        or "google/lyria-3-pro-preview"
+    )
+
+
 def get_structured_output_mode() -> StructuredOutputMode:
     """
     LLMFH_STRUCTURED_OUTPUT_MODE=native|tool.
-    In free mode, default to tool when unset (router variability).
+    In free mode, default to tool when unset (native is unreliable on openrouter/free).
     DeepSeek via OpenRouter does not support pydantic-ai native structured output; default to tool.
     """
     raw = os.getenv("LLMFH_STRUCTURED_OUTPUT_MODE", "").strip().lower()

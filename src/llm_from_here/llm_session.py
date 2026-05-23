@@ -13,12 +13,14 @@ from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessagesTypeAdapter
 from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.output import NativeOutput
+from pydantic_ai.profiles.openai import OpenAIModelProfile
 from retry import retry
 import openai
 
 from llm_from_here.llm_env import (
     get_openrouter_chat_model,
     get_structured_output_mode,
+    is_openrouter_free_mode,
     log_free_mode_startup,
     structured_output_fallback_enabled,
 )
@@ -30,17 +32,32 @@ import dotenv
 
 dotenv.load_dotenv()
 
+
+def _openrouter_model(slug: str) -> OpenRouterModel:
+    """OpenRouter model; free mode uses tool_choice=auto (openrouter/free rejects required)."""
+    if is_openrouter_free_mode():
+        return OpenRouterModel(
+            slug,
+            profile=OpenAIModelProfile(openai_supports_tool_choice_required=False),
+        )
+    return OpenRouterModel(slug)
+
+
 class LlmSession:
     """Multi-turn chat + structured outputs via OpenRouter and pydantic-ai."""
 
-    def __init__(self, system_message: str = ""):
+    def __init__(self, system_message: str = "", *, model_slug: str | None = None):
         self.system_message = system_message
-        self.chat_model_slug = get_openrouter_chat_model()
+        self.chat_model_slug = (
+            str(model_slug).strip()
+            if model_slug is not None and str(model_slug).strip()
+            else get_openrouter_chat_model()
+        )
         log_free_mode_startup(logger, self.chat_model_slug)
         self._history_serial: list[dict[str, Any]] = []
         self.responses: list[Any] = []
         self._agent = Agent(
-            OpenRouterModel(self.chat_model_slug),
+            _openrouter_model(self.chat_model_slug),
             system_prompt=(system_message,) if system_message else (),
             output_type=str,
             retries=3,
@@ -54,9 +71,10 @@ class LlmSession:
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
-        self.chat_model_slug = get_openrouter_chat_model()
+        if not getattr(self, "chat_model_slug", None):
+            self.chat_model_slug = get_openrouter_chat_model()
         self._agent = Agent(
-            OpenRouterModel(self.chat_model_slug),
+            _openrouter_model(self.chat_model_slug),
             system_prompt=(self.system_message,) if self.system_message else (),
             output_type=str,
             retries=3,
@@ -131,6 +149,14 @@ class LlmSession:
             return out.model_dump()
         return out
 
+    def _should_retry_structured_mode(self, exc: Exception, *, explicit_mode: bool) -> bool:
+        if explicit_mode:
+            return False
+        if structured_output_fallback_enabled() or is_openrouter_free_mode():
+            return True
+        msg = str(exc).lower()
+        return "tool choice must be auto" in msg
+
     def run_structured(
         self,
         prompt: str,
@@ -156,18 +182,17 @@ class LlmSession:
         try:
             return _run(mode)
         except Exception as e:
-            if (
-                mode == "native"
-                and structured_output_fallback_enabled()
-                and not structured_mode
-            ):
+            if self._should_retry_structured_mode(e, explicit_mode=structured_mode is not None):
+                alt: StructuredOutputMode = "tool" if mode == "native" else "native"
                 logger.warning(
-                    "Structured native output failed (%s); retrying with tool output mode",
+                    "Structured %s output failed (%s); retrying with %s mode",
+                    mode,
                     e,
+                    alt,
                 )
                 if self._history_serial:
                     self.delete_last_message()
-                return _run("tool")
+                return _run(alt)
             raise
 
     def enforce_list_response(
