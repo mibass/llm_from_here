@@ -1,0 +1,40 @@
+---
+description: LLM From Here repo conventions (ShowRunner, OpenRouter, configs)
+alwaysApply: true
+---
+
+# LLM From Here conventions
+
+## Canonical config and outputs
+
+- Production show config: `configs/configv3.yaml` (CI/release workflows use this).
+- Run output: `{output_dir}/{show_name}_runN/` (default `outputs/`).
+- Per-run logs: `show_runner.log` (main), `agent_trace.log` (guest agent + filter LLM). Legacy `showRunner.log` is not written.
+
+## OpenRouter model slugs
+
+- Use `openrouter:<slug>` when constructing `LlmSession` or YAML `model_routing` values (e.g. `openrouter:openai/gpt-4o-mini`).
+- Bare slugs like `openai/gpt-4o-mini` are not routed through OpenRouter unless prefixed.
+- Local Ollama: `ollama:model-name` (ShowRunner warns if Ollama is down).
+
+## Model routing
+
+YAML `global_params.model_routing`: `filter_model`, `structured_model`, `prose_model`.
+Env overrides: `LLMFH_FILTER_MODEL`, `LLMFH_STRUCTURED_MODEL`, `LLMFH_PROSE_MODEL`.
+
+## Lyria background music
+
+- Off by default; enable with `LLMFH_LYRIA_ENABLED=1`.
+- Model: `OPENROUTER_MUSIC_MODEL` (default `google/lyria-3-pro-preview`).
+- When Lyria is off or fails, `music_generator_openrouter` falls back to YouTube.
+
+## Structured outputs
+
+- Prefer Pydantic models in `src/llm_from_here/schemas/` + `LlmSession.run_structured`.
+- Inventory: `docs/llm_schema_inventory.md`.
+- pydantic-ai `Agent` retries: use `AgentRetries(tools=N, output=M)`, not deprecated `output_retries`.
+
+## Tests
+
+- Unit tests must not require `OPENROUTER_API_KEY`; mock `OpenRouterModel` / `Agent` or `LlmSession` at call sites.
+- CI runs `pytest tests/test*.py` only; integration tests live under `tests/integration/`.
