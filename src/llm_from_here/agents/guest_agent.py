@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from googleapiclient.errors import HttpError
-from pydantic_ai import Agent, ModelRetry, RunContext
+from pydantic_ai import Agent, AgentRetries, ModelRetry, RunContext
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from llm_from_here.llm_env import get_filter_model, get_structured_model
@@ -155,8 +155,7 @@ def _make_guest_agent(model: str) -> Agent[GuestAgentDeps, GuestSegment]:
         deps_type=GuestAgentDeps,
         output_type=GuestSegment,
         system_prompt=(GUEST_AGENT_SYSTEM,),
-        retries=2,
-        output_retries=5,
+        retries=AgentRetries(tools=2, output=5),
         defer_model_check=True,
     )
 

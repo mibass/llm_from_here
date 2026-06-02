@@ -23,6 +23,8 @@ load_dotenv()  # take environment variables from .env.
 
 bootstrap_showrunner_logging()
 logger = logging.getLogger(__name__)
+
+
 def _log_context(run_id, plugin_name, phase, message, level="info"):
     context = f"run_id={run_id} plugin={plugin_name} phase={phase}"
     log_message = f"{context} message={message}"
@@ -95,13 +97,6 @@ def plugin_cache_entry_hash(entry, global_results):
 
 def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
     global global_results
-    if clear_cache:
-        plugin_cache.clear()
-        logger.info(
-            "Plugin result cache cleared (%s).",
-            os.path.join(cache_dir, "cache.pickle"),
-        )
-
     data = load_yaml(yaml_file)
 
     # Create unique outputs folder based on show parameter
@@ -119,6 +114,14 @@ def execute_plugins(yaml_file, clear_cache=False, outputs_dir=None):
     # create the folder, if it doesn't exist
     output_folder = os.path.join(outputs_dir, f"{show_name}_run{run_count}")
     os.makedirs(output_folder, exist_ok=True)
+
+    if clear_cache:
+        plugin_cache.clear()
+        logger.info(
+            "Plugin result cache cleared (%s).",
+            os.path.join(cache_dir, "cache.pickle"),
+        )
+
     global_results['output_folder'] = output_folder
     global_results['run_id'] = run_id
     configure_show_run_logging(output_folder)

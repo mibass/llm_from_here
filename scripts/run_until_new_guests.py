@@ -58,7 +58,7 @@ def main() -> int:
     yaml_rel = sys.argv[1] if len(sys.argv) > 1 else "configs/configv3.yaml"
     yaml_path = yaml_rel if os.path.isabs(yaml_rel) else os.path.join(REPO, yaml_rel)
 
-    outputs_dir = DEFAULT_OUTPUTS
+    outputs_dir = os.environ.get("LLMFH_SHOWRUNNER_OUTPUT_DIR", DEFAULT_OUTPUTS)
     baseline_path = latest_show_runner_log(outputs_dir)
     avoid = latest_intro_guest_fingerprint(baseline_path)
     print("Baseline lineup fingerprint (sorted guest names, multiset):", avoid)
@@ -80,6 +80,8 @@ def main() -> int:
                 "llm_from_here.showRunner",
                 yaml_path,
                 "--clear-cache",
+                "--output-dir",
+                outputs_dir,
             ],
             cwd=REPO,
         )

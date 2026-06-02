@@ -65,7 +65,7 @@ jobs:
 
       - name: Run show
         run: |
-          uv run python -m llm_from_here.showRunner configs/configv3.yaml
+          uv run python -m llm_from_here.showRunner configs/configv3.yaml --output-dir outputs
         env:
             OPENROUTER_MODEL: openai/gpt-4o-mini
             OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

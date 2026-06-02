@@ -43,6 +43,22 @@ class AudioTimelineTest(unittest.TestCase):
         self.assertEqual(self.timeline.timeline[1]['start_time'], 1000)
         self.assertEqual(self.timeline.timeline[1]['label'], SegmentLabel.FOREGROUND)
 
+    def test_foreground_after_background_does_not_overlap_prior_clip(self):
+        """Story narration must not overlay the last guest clip."""
+        guest_end_ms = 600_000
+        guest = generate_noisy_audio(guest_end_ms)
+        bed = generate_noisy_audio(500_000)
+        narration = generate_noisy_audio(25_000)
+
+        self.timeline.add_to_timeline(guest, start_time=0)
+        self.timeline.add_background(bed, start_time=guest_end_ms)
+        self.timeline.add_after_previous(
+            narration,
+            overlay_percentage=15,
+        )
+
+        self.assertEqual(self.timeline.timeline[-1]['start_time'], guest_end_ms)
+
 
 
     def test_add_background(self):
@@ -135,6 +151,25 @@ class AudioTimelineTest(unittest.TestCase):
 
         self.assertEqual(len(trimmed_audio), 2000)  # Trimmed audio should have 2 seconds of audio
 
+    def test_render_applies_background_end_fade(self):
+        tone = generators.Sine(440).to_audio_segment(duration=8000)
+        self.timeline._add_to_timeline(
+            tone,
+            start_time=0,
+            label=SegmentLabel.BACKGROUND,
+            name="bed",
+            type="background",
+            end_time=4000,
+            end_fade_ms=1500,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = f"{temp_dir}/out.wav"
+            self.timeline.render(path, "wav")
+            out = AudioSegment.from_wav(path)
+        self.assertEqual(len(out), 4000)
+        mid_db = out[1500:1600].dBFS
+        tail_db = out[-200:].dBFS
+        self.assertLess(tail_db, mid_db)
 
     def tearDown(self):
         # Clean up any resources used by the test case

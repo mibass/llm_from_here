@@ -46,6 +46,33 @@ class TestLlmSession(unittest.TestCase):
         spec = self.mock_agent.run_sync.call_args.kwargs["output_type"]
         self.assertIsInstance(spec, NativeOutput)
 
+    def test_run_structured_free_mode_falls_back_to_tool(self):
+        mock_ok = MagicMock()
+        mock_ok.output = _Mini(x=2)
+        mock_ok.new_messages.return_value = []
+        self.mock_agent.run_sync.side_effect = [RuntimeError("Tool choice must be auto"), mock_ok]
+
+        with patch("llm_from_here.llm_session.is_openrouter_free_mode", return_value=True):
+            with patch("llm_from_here.llm_session.get_structured_output_mode", return_value="native"):
+                out = self.session.run_structured("p", _Mini, log_prompt=False)
+
+        self.assertEqual(out, {"x": 2})
+        self.assertEqual(self.mock_agent.run_sync.call_count, 2)
+        first_spec = self.mock_agent.run_sync.call_args_list[0].kwargs["output_type"]
+        second_spec = self.mock_agent.run_sync.call_args_list[1].kwargs["output_type"]
+        self.assertIsInstance(first_spec, NativeOutput)
+        self.assertIs(second_spec, _Mini)
+
+    @patch("llm_from_here.llm_session.OpenRouterModel")
+    @patch("llm_from_here.llm_session.is_openrouter_free_mode", return_value=True)
+    def test_resolve_agent_backend_free_mode_disables_required_tool_choice(
+        self, _mock_free, mock_or_model
+    ):
+        LlmSession._resolve_agent_backend(None)
+        mock_or_model.assert_called_once()
+        kwargs = mock_or_model.call_args.kwargs
+        self.assertFalse(kwargs["profile"].openai_supports_tool_choice_required)
+
 
 class TestLlmSessionModelSlug(unittest.TestCase):
     @patch("llm_from_here.llm_session.OpenRouterModel")

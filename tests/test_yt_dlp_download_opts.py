@@ -24,6 +24,14 @@ def _clear_yt_dlp_strategy_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_build_yt_dlp_download_attempt_opts_rotation_length(monkeypatch: pytest.MonkeyPatch):
     _clear_yt_dlp_strategy_env(monkeypatch)
+    monkeypatch.setattr(
+        "llm_from_here.plugins.ytfetch._curlcffi_handler_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "llm_from_here.plugins.ytfetch._impersonate_target_supported",
+        lambda _target: True,
+    )
     opts = build_yt_dlp_download_attempt_opts({"quiet": True})
     assert len(opts) >= 2
     assert "impersonate" in opts[1]
@@ -32,6 +40,14 @@ def test_build_yt_dlp_download_attempt_opts_rotation_length(monkeypatch: pytest.
 def test_yt_dlp_vanilla_first_plain_attempt_first(monkeypatch: pytest.MonkeyPatch):
     _clear_yt_dlp_strategy_env(monkeypatch)
     monkeypatch.setenv("YT_DLP_VANILLA_FIRST", "1")
+    monkeypatch.setattr(
+        "llm_from_here.plugins.ytfetch._curlcffi_handler_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "llm_from_here.plugins.ytfetch._impersonate_target_supported",
+        lambda _target: True,
+    )
     opts = build_yt_dlp_download_attempt_opts({"quiet": True})
     assert "impersonate" not in opts[0]
     assert any(o.get("impersonate") is not None for o in opts[1:])

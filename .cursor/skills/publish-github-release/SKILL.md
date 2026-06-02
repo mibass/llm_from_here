@@ -57,6 +57,8 @@ gh release create v0.X.Y --repo mibass/llm_from_here --generate-notes
 
 - **Test Episode Release** (`workflow_dispatch`): pulls **`releases/latest`**. Run once after publishing so ShowRunner runs against **the tag just shipped**.
 - **Episode Release** (scheduled prod): ensure **`LLMFH_ENV`** expectations match prod Podbean behavior.
+- Workflows upload **`outputs/**/*.log`** as artifacts (`show_runner.log`, `agent_trace.log`) on success or failure.
+- **`configs/configv3.yaml`** is the show config in release workflows. Lyria beds are **off unless** you set **`LLMFH_LYRIA_ENABLED=1`** in workflow env/vars (otherwise intro/story music uses YouTube fallback).
 
 Optional Actions parity:
 

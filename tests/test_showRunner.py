@@ -1,7 +1,8 @@
 import hashlib
 import unittest
 import tempfile
-from unittest.mock import patch, mock_open, call, MagicMock
+from pathlib import Path
+from unittest.mock import patch, MagicMock
 import unittest.mock as mock
 import llm_from_here.showRunner as showRunner
 
@@ -43,8 +44,7 @@ class TestShowRunner(unittest.TestCase):
         mock_isdir.return_value = True
         self.assertEqual(showRunner.get_last_run_count('TestShow', '.'), 0)
 
-    @patch("builtins.open", new_callable=mock_open)
-    def test_execute_plugins(self, mock_open):
+    def test_execute_plugins(self):
         self.yaml_file = "test_config.yaml"
         
         # Mocked data read from YAML file
@@ -66,10 +66,7 @@ class TestShowRunner(unittest.TestCase):
         
         # get a temporary directory to use as the output directory
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Mock the yaml.load function to return the mocked data
-            with patch("yaml.load") as mock_load:
-                mock_load.return_value = mocked_data
-                
+            with patch.object(showRunner, "load_yaml", return_value=mocked_data):
                 # Mock import_module to return a dummy module
                 with patch('importlib.import_module') as mock_import_module:
                     mock_import_module.return_value = MagicMock()
@@ -81,6 +78,9 @@ class TestShowRunner(unittest.TestCase):
                             showRunner.execute_plugins(self.yaml_file, outputs_dir=temp_dir)
                         except Exception as e:
                             self.fail(f'execute_plugins raised an exception: {e}')
+                        logs = list(Path(temp_dir).rglob("show_runner.log"))
+                        self.assertEqual(len(logs), 1, msg="run log should live under output_dir")
+                        self.assertGreater(logs[0].stat().st_size, 0)
 
 
 if __name__ == '__main__':

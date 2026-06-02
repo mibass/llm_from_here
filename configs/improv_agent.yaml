@@ -1,0 +1,61 @@
+show_name: ImprovAgentShow
+global_parameters: {}
+
+plugins:
+  - name: improv
+    plugin: improvAgent
+    class: ImprovAgent
+    cache: True
+    retries: 3
+    params:
+      judge_model: openai/gpt-4o-mini
+      judge_system_message: >
+        You are an improv director and quality judge. Score each turn on coherence,
+        "yes and" adherence, and character consistency (1–4). Use pass_turn=true only
+        when the line is playable and builds the scene. For sound-effect selection,
+        pick the candidate index that best matches the staged cue and dialogue context.
+      setup_system_message: >
+        You are a long-form improv director. Establish a complete scene setup: a grounded
+        contemporary environment, distinct characters with clear wants, a compelling
+        inciting incident, a short background ambient search query for Freesound, and
+        3–5 sfx_palette entries (short searchable sound labels).
+      target_turn_count: 20
+      max_regen_per_turn: 2
+      sfx_candidates: 5
+      judge_pass_threshold: 3
+      character_slots:
+        - model: google/gemini-2.5-flash
+          tts_voice: nova
+          system_message: >
+            You are an improv performer. Embody your character fully, listen deeply,
+            and build on what your scene partner offers. Apply "yes and" in every response.
+            Speak only as your character.
+        - model: openai/gpt-4o-mini
+          tts_voice: echo
+          system_message: >
+            You are an improv performer. Embody your character fully, listen deeply,
+            and build on what your scene partner offers. Apply "yes and" in every response.
+            Speak only as your character.
+
+  - name: improv_audio
+    plugin: segmentsToTimeline
+    class: SegmentsToTimeline
+    cache: True
+    cb: 20
+    params:
+      segments_object: improv_segments
+      segment_type_map_variable: improv_segment_type_map
+      segment_type_key: speaker
+      segment_value_key: dialog
+      background_music_gain: -10
+      timeline_variable: improv_audio_timeline
+      segment_transition_map:
+        - sound effect:
+            any:
+              overlay_percentage: 100
+
+  - name: audio_render
+    plugin: audioTimeline
+    class: AudioTimeline
+    params:
+      timeline_variable: improv_audio_timeline

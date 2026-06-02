@@ -8,10 +8,13 @@ import pytest
 
 from llm_from_here.plugins.ytfetch import (
     YOUTUBE_AUDIO_FORMAT_SPEC,
+    DEFAULT_YT_DLP_SOCKET_TIMEOUT,
     build_yt_dlp_download_attempt_opts,
     merge_yt_dlp_env_into,
-    _yt_dlp_fallback_overlays,
+    strip_guest_query_prefix,
+    _filtered_yt_dlp_fallback_overlays,
 )
+from llm_from_here.plugins import ytfetch as ytfetch_mod
 
 _YT_DLP_ENV_KEYS = (
     "YT_DLP_COOKIE_FILE",
@@ -117,8 +120,32 @@ def test_build_attempts_single_when_explicit_impersonate(monkeypatch):
 def test_build_attempts_fallback_chain_length(monkeypatch):
     base = {"quiet": True}
     attempts = build_yt_dlp_download_attempt_opts(base)
-    assert len(attempts) == len(_yt_dlp_fallback_overlays())
-    assert "impersonate" in attempts[0]
+    assert len(attempts) == len(_filtered_yt_dlp_fallback_overlays())
+    assert attempts[-1] == {"quiet": True}
+    if len(attempts) > 1:
+        assert "impersonate" in attempts[0]
+
+
+def test_build_attempts_skips_unsupported_impersonate(monkeypatch):
+    monkeypatch.setattr(ytfetch_mod, "_curlcffi_handler_available", lambda: False)
+    ytfetch_mod._impersonation_filter_logged = False
+    overlays = _filtered_yt_dlp_fallback_overlays()
+    assert overlays == ({},)
+    attempts = build_yt_dlp_download_attempt_opts({"quiet": True})
+    assert len(attempts) == 1
+    assert "impersonate" not in attempts[0]
+
+
+def test_strip_guest_query_prefix():
+    assert strip_guest_query_prefix("Band Name: The Avett Brothers") == "The Avett Brothers"
+    assert strip_guest_query_prefix("Comedian: Roy Wood Jr.") == "Roy Wood Jr."
+    assert strip_guest_query_prefix("folk instrumental live") == "folk instrumental live"
+
+
+def test_build_youtube_audio_ydl_opts_default_socket_timeout():
+    fetch = ytfetch_mod.YtFetch.__new__(ytfetch_mod.YtFetch)
+    opts = fetch._build_youtube_audio_ydl_opts("/tmp/test", for_download=True)
+    assert opts["socket_timeout"] == DEFAULT_YT_DLP_SOCKET_TIMEOUT
 
 
 def test_build_attempts_fallback_keeps_base_keys(monkeypatch):

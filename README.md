@@ -92,27 +92,63 @@ Optional:
 - environment selector `LLMFH_ENV` (`prod` for production publishing)
 - `OPENROUTER_MODEL` (OpenRouter slug; default / example: `deepseek/deepseek-chat`)
 - `OPENROUTER_TTS_MODEL`, `OPENROUTER_TTS_VOICE` for slow TTS
+- `OPENROUTER_MUSIC_MODEL` and `LLMFH_LYRIA_ENABLED=1` for OpenRouter Lyria background music (see **Show pipeline** below; default is YouTube fallback)
+- `LLMFH_FILTER_MODEL`, `LLMFH_STRUCTURED_MODEL`, `LLMFH_PROSE_MODEL` to override YAML `model_routing` (see **Show pipeline**)
 - `LLMFH_STRUCTURED_OUTPUT_MODE=native|tool` (pydantic-ai structured output style)
 - `LLMFH_OPENROUTER_FREE_MODE=1` for zero-cost chat (`openrouter/free`; ignores paid `OPENROUTER_MODEL` from `.env`) and gTTS for slow TTS — optional `LLMFH_OPENROUTER_FREE_CHAT_MODEL` to pick another slug
 
 See [docs/llm_schema_inventory.md](docs/llm_schema_inventory.md) for structured-output model mapping.
 
-### Usage
+### Show pipeline (`configs/configv3.yaml`)
 
-To run the script:
+Production and GitHub Actions use **[configs/configv3.yaml](configs/configv3.yaml)** (older configs: `config.yaml`, `configv2.yaml`).
+
+**Model routing** — `global_params.model_routing` in YAML (overridable via env):
+
+| YAML key | Used for | Default |
+| --- | --- | --- |
+| `filter_model` | YouTube title filter, guest-agent filter tool | `openrouter:openai/gpt-4o-mini` |
+| `structured_model` | Guest agent (pydantic-ai tools + structured pick) | `openrouter:openai/gpt-4o-mini` |
+| `prose_model` | Long-form script generation | `openrouter:openai/gpt-4o` |
+
+Use the `openrouter:` prefix for OpenRouter slugs; use `ollama:…` for local Ollama (ShowRunner warns if Ollama is unreachable).
+
+**Guest agent** — `guests_audio` sets `use_agent: True`. A pydantic-ai agent searches YouTube, filters candidates, and returns a clip pick (`agents/guest_agent.py`). Traces go to `agent_trace.log` in the run folder.
+
+**Lyria music** — Intro and story beds use `music_generator_openrouter` (`openrouter_music.py`). Lyria is **off by default** (`LLMFH_LYRIA_ENABLED` unset). When off or after retries fail, segments fall back to YouTube search/playlist. Set `LLMFH_LYRIA_ENABLED=1` locally or in Actions vars/secrets for generated beds.
+
+**Structured story/outro** — `story` and `outro` plugins use `promptToSegment` with Pydantic models (`StoryScript`, `OutroScript`) and segment mappers instead of inline JSON schema blocks. See [docs/llm_schema_inventory.md](docs/llm_schema_inventory.md).
+
+**Improv (experimental)** — [configs/improv_agent.yaml](configs/improv_agent.yaml) and [configs/improv_agent_smoke.yaml](configs/improv_agent_smoke.yaml) run the multi-model `improvAgent` plugin. Debug output: `improv_debug.json` in the run folder.
+
+**Diagnostics / evals** (manual, not CI):
 
 ```bash
-uv run python -m llm_from_here.showRunner config.yaml [--clear-cache] [--output-dir <dir>]
+uv run python scripts/diagnose_lyria.py          # Lyria stream probe (needs OPENROUTER_API_KEY)
+uv run python scripts/inspect_improv_scene.py    # Pretty-print improv_debug.json
+uv run python evals/eval_guest_agent.py         # LLM-as-judge guest-agent quality eval
+uv run python evals/eval_improv_agent.py path/to/improv_debug.json
+```
+
+### Usage
+
+To run the show (production config):
+
+```bash
+uv run python -m llm_from_here.showRunner configs/configv3.yaml [--clear-cache] [--output-dir <dir>]
 ```
 
 Optional flags:
 
 ```
 --clear-cache: Use this flag to clear the plugin cache before execution.
---output-dir: Use this flag to specify the directory where outputs should be stored. Default is ./outputs.
+--output-dir: Base directory for runs; each run is written to ``{output_dir}/{show_name}_runN/``.
+              Default is ./outputs. Logs go to ``{output_dir}/{show_name}_runN/show_runner.log``.
 ```
 
 Set `LLMFH_SHOWRUNNER_LOG_STDOUT=1` to mirror ShowRunner log lines to stderr (helpful when piping output). Each run writes `show_runner.log` under that run’s output folder (for example `outputs/<show_name>_run42/show_runner.log`). Guest-agent pydantic-ai traces and filter-model structured outputs go to `agent_trace.log` beside it.
+
+Set `LLMFH_SHOWRUNNER_OUTPUT_DIR` to change the default outputs base (used by [scripts/run_until_new_guests.py](scripts/run_until_new_guests.py)).
 
 Make sure to provide the path to your YAML configuration file. The script will execute plugins defined in the YAML file, store results in the output folder, and log the execution details.
 

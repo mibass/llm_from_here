@@ -3,6 +3,8 @@ import os
 import re
 import shutil
 
+from llm_from_here.llm_env import is_lyria_enabled, is_openrouter_free_mode
+from llm_from_here.openrouter_music import generate_instrumental, youtube_fallback_query
 from pydub import AudioSegment
 
 from llm_from_here.plugins.applause import generate_applause
@@ -11,6 +13,7 @@ import llm_from_here.plugins.ytfetch as ytfetch
 import llm_from_here.plugins.audioTimeline as audioTimeline
 
 import logging
+from typing import Any
 
 from llm_from_here.agents.guest_agent import (
     GuestAgentDeps,
@@ -49,6 +52,16 @@ class SegmentsToTimeline:
             )
         else:
             logger.info(f"No timeline found. Creating new timeline.")
+
+    def _segment_type_map(self) -> dict:
+        """Use params.segment_type_map, or global_results[segment_type_map_variable] if set."""
+        var_key = self.params.get("segment_type_map_variable")
+        if var_key:
+            m = self.global_results.get(var_key)
+            if isinstance(m, dict) and m:
+                logger.info("Using segment_type_map from global_results[%s]", var_key)
+                return m
+        return self.params.get("segment_type_map") or {}
 
     def applause_generator(self, text, output_file):
         # extract the duration from the text
@@ -93,7 +106,51 @@ class SegmentsToTimeline:
         shutil.move(self.freesound_fetch.temp_files[-1], output_file)
         return True
 
-    def tts(self, text, output_file, fast_tts=True):
+    def music_generator_openrouter(self, text, output_file, **kwargs):
+        fallback_segment_type = kwargs.pop("fallback_segment_type", "youtube_search")
+        fallback_kwargs = dict(kwargs)
+        if fallback_segment_type == "youtube_search":
+            fallback_kwargs.setdefault(
+                "additional_query_text",
+                fallback_kwargs.get("additional_query_text", "instrumental live"),
+            )
+            search_text = youtube_fallback_query(text)
+            logger.info(
+                "Lyria fallback youtube_search query from cue: %r", search_text
+            )
+            fallback_call = lambda: getattr(self, fallback_segment_type)(
+                search_text, output_file, **fallback_kwargs
+            )
+        else:
+            fallback_call = lambda: getattr(self, fallback_segment_type)(
+                text, output_file, **fallback_kwargs
+            )
+
+        if is_openrouter_free_mode():
+            logger.info(
+                "LLMFH_OPENROUTER_FREE_MODE: skipping Lyria, using %s",
+                fallback_segment_type,
+            )
+            return fallback_call()
+
+        if not is_lyria_enabled():
+            logger.info(
+                "LLMFH_LYRIA_ENABLED is off: skipping Lyria, using %s",
+                fallback_segment_type,
+            )
+            return fallback_call()
+
+        try:
+            return generate_instrumental(text, output_file)
+        except Exception:
+            logger.warning(
+                "Lyria music generation failed; falling back to %s",
+                fallback_segment_type,
+                exc_info=True,
+            )
+            return fallback_call()
+
+    def tts(self, text, output_file, fast_tts=True, voice=None, tts_model=None):
         if self.show_tts is None:
             self.show_tts = showTTS.ShowTextToSpeech()
         # filter out any text in brackets, parantheses
@@ -110,15 +167,28 @@ class SegmentsToTimeline:
             logger.info(f"Text is empty after filtering. Skipping TTS.")
             return None
         else:
-            self.show_tts.speak(text_filtered, output_file, fast=fast_tts)
+            speak_kw: dict[str, Any] = {"fast": fast_tts}
+            if voice is not None:
+                speak_kw["voice"] = voice
+            if tts_model is not None:
+                speak_kw["model"] = tts_model
+            self.show_tts.speak(text_filtered, output_file, **speak_kw)
 
         return {}
 
-    def fast_TTS(self, text, output_file):
-        return self.tts(text, output_file, fast_tts=True)
+    def fast_TTS(self, text, output_file, **kwargs):
+        voice = kwargs.pop("voice", None)
+        tts_model = kwargs.pop("tts_model", None)
+        if kwargs:
+            logger.warning("fast_TTS ignoring unknown kwargs: %s", list(kwargs.keys()))
+        return self.tts(text, output_file, fast_tts=True, voice=voice, tts_model=tts_model)
 
-    def slow_TTS(self, text, output_file):
-        return self.tts(text, output_file, fast_tts=False)
+    def slow_TTS(self, text, output_file, **kwargs):
+        voice = kwargs.pop("voice", None)
+        tts_model = kwargs.pop("tts_model", None)
+        if kwargs:
+            logger.warning("slow_TTS ignoring unknown kwargs: %s", list(kwargs.keys()))
+        return self.tts(text, output_file, fast_tts=False, voice=voice, tts_model=tts_model)
         
     def init_ytfetch(self, **kwargs):
         if self.yt_fetch is None:
@@ -360,6 +430,7 @@ class SegmentsToTimeline:
         segment_transition_map: list | None,
         output_folder: str,
         background_music: bool,
+        background_end_fade_ms: int | None = None,
     ) -> float:
         """Intro TTS + applause + clip on timeline. Returns clip duration in seconds."""
         title = res.get("title") if isinstance(res, dict) else None
@@ -418,6 +489,9 @@ class SegmentsToTimeline:
             else audioTimeline.SegmentLabel.FOREGROUND,
             afp_kwargs,
         )
+        timeline_kwargs = dict(afp_kwargs)
+        if background_music and background_end_fade_ms:
+            timeline_kwargs["end_fade_ms"] = background_end_fade_ms
         self.timeline.add_after_previous(
             file_path,
             label=audioTimeline.SegmentLabel.BACKGROUND
@@ -425,7 +499,7 @@ class SegmentsToTimeline:
             else audioTimeline.SegmentLabel.FOREGROUND,
             name=title if title else f"{entry[type_key]}_{i}",
             type=entry[type_key],
-            **afp_kwargs,
+            **timeline_kwargs,
         )
 
         dur = float(res.get("duration_sec") or 0.0)
@@ -446,6 +520,7 @@ class SegmentsToTimeline:
         output_folder: str,
         background_music: bool,
         max_attempts: int,
+        background_end_fade_ms: int | None = None,
     ) -> float | None:
         """Run agent_search (+ timeline hooks). Returns clip duration sec or None."""
         filename_prefix = f"{self.plugin_instance_name}_{segment_index:03d}"
@@ -479,6 +554,7 @@ class SegmentsToTimeline:
             segment_transition_map=segment_transition_map,
             output_folder=output_folder,
             background_music=background_music,
+            background_end_fade_ms=background_end_fade_ms,
         )
 
     def _generate_guest_audio_target_duration(self):
@@ -647,11 +723,12 @@ class SegmentsToTimeline:
 
     def get_data(self, type_key, value_key):
         data = self.global_results.get(self.params.get("segments_object"))
+        stm = self._segment_type_map()
         if not data:
             logger.info(f"No data found. Using segment_type_map instead.")
             # if no data, assume segment_type_map is the list
             data = []
-            for k, _ in self.params.get("segment_type_map", {}).items():
+            for k, _ in stm.items():
                 data.append({type_key: k, value_key: ""})
             logger.info(f"Data is now: {data}")
         return data
@@ -661,7 +738,7 @@ class SegmentsToTimeline:
         type_key = self.params.get("segment_type_key", "speaker")
         value_key = self.params.get("segment_value_key", "dialog")
         single_background = self.params.get("single_background", False)
-        segment_type_map = self.params.get("segment_type_map", {})
+        segment_type_map = self._segment_type_map()
         segment_transition_map = self.params.get("segment_transition_map", {})
 
         use_agent = self.params.get("use_agent", False)
@@ -671,6 +748,7 @@ class SegmentsToTimeline:
 
         max_attempts = int(self.params.get("guest_clip_max_attempts", 4))
         background_seen = False
+        background_end_fade_ms = self.params.get("background_end_fade_ms")
         for i, entry in enumerate(self.get_data(type_key, value_key)):
             filename_prefix = f"{self.plugin_instance_name}_{i:03d}"
             filename = filename_prefix + ".wav"
@@ -692,8 +770,6 @@ class SegmentsToTimeline:
                     f"Skipping background music segment because single_background is enabled and background_seen is True."
                 )
                 continue
-            else:
-                background_seen = True
 
             logger.info(
                 f"Generating audio for type: {entry[type_key]} "
@@ -712,6 +788,7 @@ class SegmentsToTimeline:
                     output_folder=output_folder,
                     background_music=background_music,
                     max_attempts=max_attempts,
+                    background_end_fade_ms=background_end_fade_ms,
                 )
                 if dur is None:
                     logger.info(f"No audio generated for type: {entry[type_key]}")
@@ -737,7 +814,11 @@ class SegmentsToTimeline:
                 segment_transition_map=segment_transition_map,
                 output_folder=output_folder,
                 background_music=background_music,
+                background_end_fade_ms=background_end_fade_ms,
             )
+
+            if background_music:
+                background_seen = True
 
     def execute(self):
         data = self.global_results.get(self.params.get("segments_object"))
