@@ -4,6 +4,8 @@ import os
 from enum import Enum
 import logging
 
+from llm_from_here.plugins.audioEffects import apply_narrator_reverb
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,6 +16,17 @@ class SegmentLabel(Enum):
 def match_target_amplitude(sound, target_dBFS=-20.0):
     change_in_dBFS = target_dBFS - sound.dBFS
     return sound.apply_gain(change_in_dBFS)
+
+def _narrator_reverb_settings(params) -> tuple[dict | None, set[str]]:
+    """Read narrator reverb config and segment type allowlist from plugin params."""
+    if not params:
+        return None, set()
+    cfg = params.get("narrator_reverb")
+    if not cfg or cfg.get("enabled") is False:
+        return None, set()
+    types = params.get("narrator_segment_types") or []
+    return cfg, {str(t).lower() for t in types}
+
 
 class AudioTimeline:
     def __init__(self, params=None, global_results=None, plugin_instance_name=None):
@@ -48,17 +61,19 @@ class AudioTimeline:
             else:
                 raise ValueError(f"Audio file {audio} does not exist.")
 
-    def _apply_effects(self, audio, fade_in, fade_out, gain=None):
-        """Apply fade-in and fade-out effects to a given audio segment."""
+    def _apply_effects(self, audio, fade_in, fade_out, gain=None, reverb=None):
+        """Apply reverb, fade-in, fade-out, and optional gain to an audio segment."""
         ret = audio
+        if reverb:
+            ret = apply_narrator_reverb(ret, reverb)
         if fade_in > 0:
-            ret = audio.fade_in(fade_in)
+            ret = ret.fade_in(fade_in)
         if fade_out > 0:
-            ret = audio.fade_out(fade_out)
-        
+            ret = ret.fade_out(fade_out)
+
         if gain and gain != 0:
             ret = ret.apply_gain(gain)
-            
+
         return ret
 
     def _add_to_timeline(self, audio, start_time, label=SegmentLabel.FOREGROUND, name=None, type=None, end_time=None, end_fade_ms=None):
@@ -158,8 +173,8 @@ class AudioTimeline:
         return bg
 
     def add_to_timeline(self, audio, start_time, label=SegmentLabel.FOREGROUND, name=None, type=None,
-                        duration=None, overlay_percentage=None, overlay_duration=None, 
-                        fade_in=0, fade_out=0, gain=None, gain_match=False):
+                        duration=None, overlay_percentage=None, overlay_duration=None,
+                        fade_in=0, fade_out=0, gain=None, gain_match=False, reverb=None):
         """
         Add an audio segment to the timeline at a specific start time.
         Optionally specify duration, overlay percentage, and fade-in and fade-out effects.
@@ -190,8 +205,9 @@ class AudioTimeline:
             audio = match_target_amplitude(audio, target_dBFS=last_fg_entry['audio'].dBFS)
         logger.info(f"Gain is {gain}")
         audio = self._apply_gain(audio, gain)
+        # Narrator reverb is applied at final render (see audio_render params).
         audio = self._apply_effects(audio, fade_in, fade_out)
-        
+
         logger.info(
             "Overlay percentage is %s and overlay duration is %s",
             overlay_percentage,
@@ -228,8 +244,8 @@ class AudioTimeline:
 
     def add_after_previous(self, audio, label=SegmentLabel.FOREGROUND, name=None, type=None,
                            duration=None,
-                           overlay_percentage=None, overlay_duration=None, fade_in=0, fade_out=0, 
-                           gain=None, gain_match=False, end_fade_ms=None):
+                           overlay_percentage=None, overlay_duration=None, fade_in=0, fade_out=0,
+                           gain=None, gain_match=False, end_fade_ms=None, reverb=None):
         """
         Add an audio segment to the timeline after the previous one.
         Optionally specify duration, overlay percentage, and fade-in and fade-out effects.
@@ -249,7 +265,8 @@ class AudioTimeline:
             self.add_to_timeline(audio, start_time=self.get_last_end_time(label=label), label=label, name=name, type=type,
                                  duration=duration,
                                  overlay_percentage=overlay_percentage, overlay_duration=overlay_duration,
-                                 fade_in=fade_in, fade_out=fade_out, gain=gain, gain_match=gain_match)
+                                 fade_in=fade_in, fade_out=fade_out, gain=gain, gain_match=gain_match,
+                                 reverb=reverb)
         elif label == SegmentLabel.BACKGROUND:
             self.add_background(audio, start_time=self.get_last_end_time(label=SegmentLabel.FOREGROUND), name=name, type=type,
                                 fade_in=fade_in, fade_out=fade_out, gain=gain, gain_match=gain_match,
@@ -352,9 +369,34 @@ class AudioTimeline:
 
             self.set_end_times()
 
+            narrator_cfg, narrator_types = _narrator_reverb_settings(self.params)
+
             # now accumulate audio
             for entry in self.timeline:
                 audio = entry['audio']
+                seg_type = (entry.get("type") or "").lower()
+                if (
+                    narrator_cfg
+                    and entry["label"] == SegmentLabel.FOREGROUND
+                    and seg_type in narrator_types
+                ):
+                    before_ms = len(audio)
+                    audio = apply_narrator_reverb(audio, narrator_cfg)
+                    extra_ms = len(audio) - before_ms
+                    if extra_ms > 0 and entry.get("end_time") is not None:
+                        entry["end_time"] = entry["end_time"] + extra_ms
+                        logger.info(
+                            "Extended end_time by %sms for reverb tail on %s",
+                            extra_ms,
+                            entry.get("name"),
+                        )
+                    logger.info(
+                        "Render-time narrator reverb on %s (type=%s, ms=%s)",
+                        entry.get("name"),
+                        seg_type,
+                        len(audio),
+                    )
+
                 #extend audio to meet end time, and trim, if necessary
                 logger.info(f"Rendering audio name {entry['name']} with duration {len(audio)}")
                 audio = self.loop_audio(audio, 

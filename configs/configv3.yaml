@@ -3,6 +3,21 @@ global_params:
     filter_model: openrouter:openai/gpt-4o-mini
     structured_model: openrouter:openai/gpt-4o-mini
     prose_model: openrouter:openai/gpt-4o
+  # Auditorium reverb on narrator speech (applied at final render).
+  # Preset: reverb_audition/03_small_hall (small hall; speech stays forward)
+  narrator_reverb: &narrator_reverb
+    enabled: true
+    mode: reverb
+    room_size: 0.32
+    damping: 0.48
+    wet_level: 0.20
+    dry_level: 0.93
+    width: 1.0
+  narrator_segment_types: &narrator_segment_types
+    - dris thile
+    - default
+    - intro_name
+    - character 1
 
 
 plugins:
@@ -60,7 +75,7 @@ plugins:
     plugin: segmentsToTimeline
     class: SegmentsToTimeline
     cache: True
-    cb: 22
+    cb: 23
     params:
       segments_object: intro_intro
       segment_type_key: speaker
@@ -139,7 +154,6 @@ plugins:
             duration_max_sec: 660
             video_ids_supaset_autoexpire_days: 90
 
-
   - name: story
     plugin: promptToSegment
     class: PromptToSegment
@@ -171,7 +185,7 @@ plugins:
     plugin: segmentsToTimeline
     class: SegmentsToTimeline
     cache: True
-    cb: 3
+    cb: 4
     params:
       timeline_variable: guests_audio_timeline
       segments_object: story_segments
@@ -227,7 +241,6 @@ plugins:
           arguments:
             playlist_id: PL8ufCCC-rPcv60d6yR7Sac3nRctr8hxEG
 
-
   - name: outro
     plugin: promptToSegment
     class: PromptToSegment
@@ -252,7 +265,7 @@ plugins:
     plugin: segmentsToTimeline
     class: SegmentsToTimeline
     cache: True
-    cb: 27
+    cb: 28
     params:
       timeline_variable: instrumental_timeline
       segments_object: outro_segments
@@ -269,7 +282,7 @@ plugins:
           segment_type: slow_TTS
         audience:
           segment_type: applause_generator
-      segment_transition_map: 
+      segment_transition_map:
         - any:
             background:
               gain: -15 #background music gain
@@ -287,9 +300,11 @@ plugins:
     plugin: audioTimeline
     class: AudioTimeline
     cache: True
-    cb: 1
+    cb: 3
     params:
       timeline_variable: outro_audio_timeline
+      narrator_reverb: *narrator_reverb
+      narrator_segment_types: *narrator_segment_types
 
   - name: final_audio
     plugin: stitchAudio

@@ -27,6 +27,7 @@ dependencies = [
   "pyyaml",
   "appdirs",
   "numpy",
+  "pedalboard>=0.9.10",
   "scipy",
   "jinja2",
   "scikit-learn",
