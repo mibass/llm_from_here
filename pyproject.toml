@@ -43,6 +43,7 @@ dependencies = [
   "starlette>=1.0.1",
   "curl-cffi>=0.15,<0.16",
   "tenacity>=8.0",
+  "pyjwt>=2.13.0",
 ]
 
 [project.optional-dependencies]
