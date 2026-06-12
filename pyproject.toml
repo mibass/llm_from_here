@@ -56,6 +56,7 @@ dev = [
   "mypy",
   "pyright",
   "pip-audit",
+  "pip>=26.1.2",
   "pre-commit>=4.6.0",
   "types-PyYAML",
   "types-requests",

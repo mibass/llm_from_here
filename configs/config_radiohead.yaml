@@ -1,0 +1,131 @@
+show_name: radiohead_test
+
+global_params:
+  model_routing:
+    filter_model: openrouter:openai/gpt-4o-mini
+    structured_model: openrouter:openai/gpt-4o-mini
+    prose_model: openrouter:openai/gpt-4o
+  narrator_reverb: &narrator_reverb
+    enabled: true
+    mode: reverb
+    room_size: 0.32
+    damping: 0.48
+    wet_level: 0.20
+    dry_level: 0.93
+    width: 1.0
+  narrator_segment_types: &narrator_segment_types
+    - character 1
+    - default
+
+plugins:
+  - name: radiohead
+    plugin: promptToSegment
+    class: PromptToSegment
+    cache: false
+    params:
+      system_message: >
+        You are a big shot New York live show producer, writer, and performer.
+        You are the show runner for Live From There. You are emotional, nostalgic,
+        and love music, podcasts, NPR, and long-form improv comedy.
+        The host is Dris Thile. Write in his voice—warm, witty, musicianly—like
+        Chris Thile on Live From Here, but always use the name Dris Thile, never Chris.
+      convert_script_to_segments: false
+      include_probability: 1.0
+      web_research:
+        track_used_subjects: true
+        used_subjects_supaset_name: radiohead_songs
+        max_subject_retries: 3
+        search_prompt: >
+          Research one notable Radiohead song for a variety show segment called
+          "This Week in Radiohead." Find where the song came from, stories behind it,
+          title meaning or etymology, and notable live performances. Focus on uplifting,
+          nostalgic storytelling suitable for a live audience. Pick a specific song title.
+        search:
+          engine: exa
+          max_results: 5
+          max_total_results: 10
+          search_context_size: medium
+        extraction_model: llm_from_here.schemas.web_research_outputs:WebResearchContext
+        extraction_prompt: >
+          Extract structured research notes from the web search results below.
+          Include source-backed facts only. Populate subject with the song title.
+
+          {{web_search_content}}
+
+          Sources:
+          {{web_search_sources}}
+      prompts:
+        - prompt: >
+            Using this research context:
+            {{research_context}}
+
+            Write a "This Week in Radiohead" segment for Dris Thile on Live From There.
+            Keep it warm, witty, and musicianly. About 90 seconds read aloud total.
+            Return structured fields only:
+            subject — the Radiohead song title;
+            intro_dialog — a short segment intro in Dris's voice;
+            story_dialog — the song's background, origin, and anecdotes from the research;
+            transition_dialog — one sentence transitioning into a live performance clip;
+            youtube_search_query — a concise YouTube search for a live Radiohead performance
+            of this song (include song title, Radiohead, and live);
+            applause_duration_sec — integer between 3 and 6 before the clip plays.
+          output_model: llm_from_here.schemas.web_research_outputs:ResearchedClipScript
+          segment_mapper: llm_from_here.schemas.web_research_outputs:researched_clip_to_segments
+
+  - name: radiohead_audio
+    plugin: segmentsToTimeline
+    class: SegmentsToTimeline
+    cache: true
+    params:
+      chat_app_object: radiohead_chat_app
+      skip_if_no_segments: true
+      segments_object: radiohead_segments
+      segment_type_key: speaker
+      segment_value_key: dialog
+      segment_type_map:
+        default:
+          segment_type: gemini_longform_TTS
+          arguments:
+            section: radiohead
+        clip:
+          segment_type: youtube_search
+          arguments:
+            additional_query_text: Radiohead live
+            duration_min_sec: 120
+            duration_max_sec: 600
+            llm_filter_prompt: >
+              Is this video a live Radiohead performance that is appropriate for an uplifting
+              nostalgic variety show? Avoid controversial or low-quality bootlegs.
+              Title: "{{ title }}"
+              Description: "{{ description }}"
+              Channel: "{{ channel_title }}"
+              Respond only yes or no.
+        audience:
+          segment_type: applause_generator
+      segment_transition_map:
+        - any:
+            clip:
+              overlay_percentage: 10
+        - any:
+            audience:
+              overlay_duration: 1
+              gain: -5
+
+  - name: audio_render
+    plugin: audioTimeline
+    class: AudioTimeline
+    cache: true
+    params:
+      timeline_variable: radiohead_audio_timeline
+      narrator_reverb: *narrator_reverb
+      narrator_segment_types: *narrator_segment_types
+
+  - name: final_audio
+    plugin: stitchAudio
+    class: StitchAudio
+    cache: true
+    params:
+      name: final_audio
+      output_format: mp3
+      segments_list:
+        - audio_render_file_path

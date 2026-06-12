@@ -14,6 +14,7 @@ from llm_from_here.openrouter_music import (
     _lyria_retry_delays_sec,
     generate_instrumental,
     normalize_music_prompt,
+    normalize_story_music_prompt,
     simplified_music_prompt,
     youtube_fallback_query,
 )
@@ -35,6 +36,25 @@ class TestNormalizeMusicPrompt(unittest.TestCase):
     def test_appends_no_vocals_guard(self):
         out = normalize_music_prompt("[MUSIC Warm jazz piano, ~90 BPM.]")
         self.assertIn("Instrumental only, no vocals.", out)
+
+
+class TestNormalizeStoryMusicPrompt(unittest.TestCase):
+    def test_adds_story_bed_guards(self):
+        cue = "Strings and piano, 70 BPM."
+        out = normalize_story_music_prompt(cue)
+        self.assertIn("Instrumental only, no vocals", out)
+        self.assertIn("No drums, no percussion, no beats", out)
+        self.assertIn("Calm, spacious, and gentle", out)
+        self.assertIn("Cinematic and subtly epic", out)
+
+    def test_skips_redundant_guards(self):
+        cue = (
+            "Calm cinematic epic underscore at 60 BPM. "
+            "No drums, no percussion. Instrumental only, no vocals."
+        )
+        out = normalize_story_music_prompt(cue)
+        self.assertEqual(out.count("No drums"), 1)
+        self.assertNotIn("Calm, spacious, and gentle", out)
 
 
 class TestYoutubeFallbackQuery(unittest.TestCase):
@@ -102,9 +122,10 @@ class TestLyriaHelpers(unittest.TestCase):
         )
         fallback = simplified_music_prompt(original)
         self.assertIn("180-second", fallback)
-        self.assertIn("folk instrumental", fallback.lower())
+        self.assertIn("cinematic", fallback.lower())
+        self.assertIn("no drums", fallback.lower())
         self.assertIn("no vocals", fallback.lower())
-        self.assertNotIn("rock", fallback.lower())
+        self.assertNotIn("folk", fallback.lower())
 
     def test_default_retry_delays(self):
         with patch.dict(os.environ, {}, clear=False):
@@ -187,7 +208,8 @@ class TestCollectStreamedMp3(unittest.TestCase):
         fallback_prompt = client.chat.completions.create.call_args_list[1].kwargs["messages"][0][
             "content"
         ]
-        self.assertIn("folk instrumental", fallback_prompt.lower())
+        self.assertIn("cinematic", fallback_prompt.lower())
+        self.assertIn("no drums", fallback_prompt.lower())
         self.assertIn("180-second", fallback_prompt)
         mock_sleep.assert_not_called()
 

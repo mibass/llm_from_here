@@ -3,8 +3,10 @@ import unittest
 from pydantic import ValidationError
 
 from llm_from_here.schemas.story_outputs import (
+    LongformStoryScript,
     OutroScript,
     StoryScript,
+    longform_story_to_segments,
     outro_to_segments,
     split_dialog_with_applause,
     story_to_segments,
@@ -55,6 +57,55 @@ class TestStoryToSegments(unittest.TestCase):
         self.assertEqual(segments[-1]["speaker"], "audience")
         self.assertEqual(segments[-1]["dialog"], "[APPLAUSE duration 4]")
         self.assertEqual(len(segments), 7)
+
+
+_VALID_TRANSCRIPT = (
+    "[positive] I was walking down Flatbush when this guy stopped me. "
+    "He said, hey, you play mandolin, right? I laughed and said maybe on Tuesdays. "
+    "We talked for twenty minutes about nothing and everything. "
+    "The bus hissed by and the rain started, and I realized I'd been smiling the whole time. "
+    "That's the thing about New York — you can have a whole life in one corner. "
+    "I still think about him when I tune up before a show."
+)
+
+
+class TestLongformStoryScriptValidation(unittest.TestCase):
+    def test_accepts_valid_longform_story(self):
+        story = LongformStoryScript(
+            music_prompt=_VALID_MUSIC,
+            transcript=_VALID_TRANSCRIPT,
+            applause_duration_sec=4,
+        )
+        self.assertIn("Flatbush", story.transcript)
+
+    def test_rejects_short_transcript(self):
+        with self.assertRaises(ValidationError):
+            LongformStoryScript(
+                music_prompt=_VALID_MUSIC,
+                transcript="Too short.",
+            )
+
+    def test_rejects_inline_applause_in_transcript(self):
+        with self.assertRaises(ValidationError):
+            LongformStoryScript(
+                music_prompt=_VALID_MUSIC,
+                transcript=_VALID_TRANSCRIPT + " [APPLAUSE duration 5]",
+            )
+
+
+class TestLongformStoryToSegments(unittest.TestCase):
+    def test_single_narrator_block(self):
+        story = LongformStoryScript(
+            music_prompt=_VALID_MUSIC,
+            transcript=_VALID_TRANSCRIPT,
+            applause_duration_sec=5,
+        )
+        segments = longform_story_to_segments(story)
+        self.assertEqual(segments[0]["speaker"], "background")
+        self.assertEqual(segments[1]["speaker"], "character 1")
+        self.assertEqual(segments[1]["dialog"], _VALID_TRANSCRIPT)
+        self.assertEqual(segments[-1]["speaker"], "audience")
+        self.assertEqual(len(segments), 3)
 
 
 class TestOutroToSegments(unittest.TestCase):

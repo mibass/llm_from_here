@@ -401,6 +401,15 @@ class TestSegmentsToTimeline(unittest.TestCase):
         finally:
             shutil.rmtree(output_folder, ignore_errors=True)
 
+    @patch("llm_from_here.plugins.segmentsToTimeline.AudioSegment")
+    def test_silence_generator_writes_silent_wav(self, mock_audio_segment):
+        silence = mock_audio_segment.silent.return_value
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_file = os.path.join(temp_dir, "pause.wav")
+            self.stt.silence_generator("[SILENCE duration 800]", output_file)
+        mock_audio_segment.silent.assert_called_once_with(duration=800)
+        silence.export.assert_called_once()
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 _MUSIC_PROMPT_MIN_LEN = 40
 _MUSIC_PROMPT_MAX_LEN = 450
 _STORY_MIN_PARAGRAPHS = 5
+_LONGFORM_TRANSCRIPT_MIN_LEN = 400
 _TITLE_LINE_RE = re.compile(r"^\*\*.+\*\*\s*$")
 _APPLAUSE_PATTERN = re.compile(r"\[APPLAUSE.*?\]", re.IGNORECASE)
 
@@ -49,6 +50,39 @@ class StoryScript(BaseModel):
         for paragraph in self.paragraphs:
             if _TITLE_LINE_RE.match(paragraph):
                 raise ValueError("paragraphs must not be markdown title lines")
+        return self
+
+
+class LongformStoryScript(BaseModel):
+    """First-person story as one continuous transcript for Gemini long-form TTS."""
+
+    music_prompt: str
+    transcript: str
+    applause_duration_sec: int = Field(default=5, ge=3, le=6)
+
+    @field_validator("music_prompt", "transcript", mode="before")
+    @classmethod
+    def _strip_strings(cls, v: object) -> object:
+        return v.strip() if isinstance(v, str) else v
+
+    @model_validator(mode="after")
+    def _validate_longform_story(self) -> LongformStoryScript:
+        if len(self.music_prompt) < _MUSIC_PROMPT_MIN_LEN:
+            raise ValueError(
+                f"music_prompt must be at least {_MUSIC_PROMPT_MIN_LEN} characters"
+            )
+        if len(self.music_prompt) > _MUSIC_PROMPT_MAX_LEN:
+            raise ValueError(
+                f"music_prompt must be at most {_MUSIC_PROMPT_MAX_LEN} characters"
+            )
+        if len(self.transcript) < _LONGFORM_TRANSCRIPT_MIN_LEN:
+            raise ValueError(
+                f"transcript must be at least {_LONGFORM_TRANSCRIPT_MIN_LEN} characters"
+            )
+        if _TITLE_LINE_RE.match(self.transcript):
+            raise ValueError("transcript must not be a markdown title line")
+        if _APPLAUSE_PATTERN.search(self.transcript):
+            raise ValueError("transcript must not contain inline [APPLAUSE] cues")
         return self
 
 
@@ -100,6 +134,24 @@ def story_to_segments(story: StoryScript | dict) -> list[dict]:
         }
     )
     return segments
+
+
+def longform_story_to_segments(story: LongformStoryScript | dict) -> list[dict]:
+    """Map validated long-form story output to a single narrator block + music + applause."""
+    if isinstance(story, dict):
+        story = LongformStoryScript.model_validate(story)
+    return [
+        {"speaker": "background", "dialog": story.music_prompt},
+        {
+            "speaker": "character 1",
+            "dialog": story.transcript,
+            "character_name": "narrator",
+        },
+        {
+            "speaker": "audience",
+            "dialog": f"[APPLAUSE duration {story.applause_duration_sec}]",
+        },
+    ]
 
 
 def split_dialog_with_applause(

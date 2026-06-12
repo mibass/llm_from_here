@@ -2,9 +2,20 @@ import llm_from_here.plugins.showTTS as showTTS
 import os
 import re
 import shutil
+import tempfile
 
+from llm_from_here.gemini_tts import (
+    LONGFORM_TTS_CHUNK_PAUSE_MS,
+    build_longform_tts_prompt,
+    prepare_narrator_tts_text,
+    split_longform_transcript,
+)
 from llm_from_here.llm_env import is_lyria_enabled, is_openrouter_free_mode
-from llm_from_here.openrouter_music import generate_instrumental, youtube_fallback_query
+from llm_from_here.openrouter_music import (
+    generate_instrumental,
+    normalize_story_music_prompt,
+    youtube_fallback_query,
+)
 from pydub import AudioSegment
 
 from llm_from_here.plugins.applause import generate_applause
@@ -78,6 +89,15 @@ class SegmentsToTimeline:
             applause_segment.export(f, format="wav")
             return True
 
+    def silence_generator(self, text, output_file):
+        match = re.search(r"duration\s*(\d+)", text, flags=re.IGNORECASE)
+        duration_ms = int(match.group(1)) if match else 800
+        logger.info("Generating silence of duration: %s ms", duration_ms)
+        silence_segment = AudioSegment.silent(duration=duration_ms)
+        with open(output_file, "wb") as f:
+            silence_segment.export(f, format="wav")
+            return True
+
     def music_generator_freesound(
         self,
         text,
@@ -107,6 +127,13 @@ class SegmentsToTimeline:
         return True
 
     def music_generator_openrouter(self, text, output_file, **kwargs):
+        music_cue_profile = kwargs.pop("music_cue_profile", None)
+        cue_text = (
+            normalize_story_music_prompt(text)
+            if music_cue_profile == "story"
+            else text
+        )
+
         fallback_segment_type = kwargs.pop("fallback_segment_type", "youtube_search")
         fallback_kwargs = dict(kwargs)
         if fallback_segment_type == "youtube_search":
@@ -114,7 +141,7 @@ class SegmentsToTimeline:
                 "additional_query_text",
                 fallback_kwargs.get("additional_query_text", "instrumental live"),
             )
-            search_text = youtube_fallback_query(text)
+            search_text = youtube_fallback_query(cue_text)
             logger.info(
                 "Lyria fallback youtube_search query from cue: %r", search_text
             )
@@ -141,10 +168,10 @@ class SegmentsToTimeline:
             return fallback_call()
 
         try:
-            return generate_instrumental(text, output_file)
+            return generate_instrumental(cue_text, output_file)
         except Exception:
             logger.warning(
-                "Lyria music generation failed; falling back to %s",
+                "OpenRouter Lyria music generation failed; falling back to %s",
                 fallback_segment_type,
                 exc_info=True,
             )
@@ -153,11 +180,7 @@ class SegmentsToTimeline:
     def tts(self, text, output_file, fast_tts=True, voice=None, tts_model=None):
         if self.show_tts is None:
             self.show_tts = showTTS.ShowTextToSpeech()
-        # filter out any text in brackets, parantheses
-        text_filtered = re.sub(r"\[.*?\]", "", text)
-        text_filtered = re.sub(r"\(.*?\)", "", text_filtered)
-        # remove any quotes (single or double)
-        text_filtered = text_filtered.replace('"', "")
+        text_filtered = prepare_narrator_tts_text(text)
 
         if text != text_filtered:
             logger.info(
@@ -189,6 +212,91 @@ class SegmentsToTimeline:
         if kwargs:
             logger.warning("slow_TTS ignoring unknown kwargs: %s", list(kwargs.keys()))
         return self.tts(text, output_file, fast_tts=False, voice=voice, tts_model=tts_model)
+
+    def gemini_longform_TTS(self, text, output_file, **kwargs):
+        """Render one story block with Gemini's advanced long-form prompt structure."""
+        if self.show_tts is None:
+            self.show_tts = showTTS.ShowTextToSpeech()
+
+        voice = kwargs.pop("voice", None)
+        tts_model = kwargs.pop("tts_model", None)
+        max_chunk_chars = int(kwargs.pop("max_chunk_chars", 750))
+        chunk_pause_ms = int(kwargs.pop("chunk_pause_ms", LONGFORM_TTS_CHUNK_PAUSE_MS))
+        section = kwargs.pop("section", None)
+        prompt_kw: dict[str, str] = {}
+        for key in ("audio_profile", "scene", "director_notes", "sample_context"):
+            val = kwargs.pop(key, None)
+            if val is not None:
+                prompt_kw[key] = val
+        if section is not None:
+            prompt_kw["section"] = section
+        if kwargs:
+            logger.warning(
+                "gemini_longform_TTS ignoring unknown kwargs: %s", list(kwargs.keys())
+            )
+
+        chunks = split_longform_transcript(text, max_chars=max_chunk_chars)
+        if not chunks:
+            logger.info("Skipping long-form TTS: empty transcript")
+            return None
+
+        speak_kw: dict[str, Any] = {}
+        if voice is not None:
+            speak_kw["voice"] = voice
+        if tts_model is not None:
+            speak_kw["model"] = tts_model
+
+        if len(chunks) == 1:
+            try:
+                prompt = build_longform_tts_prompt(
+                    chunks[0], chunk_index=0, chunk_total=1, **prompt_kw
+                )
+            except ValueError as err:
+                logger.info("Skipping long-form TTS: %s", err)
+                return None
+            self.show_tts.speak_longform(prompt, output_file, **speak_kw)
+            return {}
+
+        combined = AudioSegment.empty()
+        previous_tail: str | None = None
+        for i, chunk in enumerate(chunks):
+            try:
+                prompt = build_longform_tts_prompt(
+                    chunk,
+                    chunk_index=i,
+                    chunk_total=len(chunks),
+                    previous_tail=previous_tail,
+                    **prompt_kw,
+                )
+            except ValueError as err:
+                logger.warning("Skipping long-form TTS chunk %s: %s", i + 1, err)
+                continue
+
+            fd, tmp_audio = tempfile.mkstemp(
+                suffix=".wav", prefix=f"llmfh_longform_{i:02d}_"
+            )
+            os.close(fd)
+            try:
+                self.show_tts.speak_longform(prompt, tmp_audio, **speak_kw)
+                segment = AudioSegment.from_wav(tmp_audio)
+                combined += segment
+                if i < len(chunks) - 1 and chunk_pause_ms > 0:
+                    combined += AudioSegment.silent(duration=chunk_pause_ms)
+            finally:
+                try:
+                    os.remove(tmp_audio)
+                except OSError:
+                    pass
+
+            prepared_chunk = prepare_narrator_tts_text(chunk)
+            previous_tail = prepared_chunk[-120:] if prepared_chunk else None
+
+        if len(combined) == 0:
+            logger.info("No long-form TTS audio generated after chunking")
+            return None
+
+        combined.export(output_file, format="wav")
+        return {}
         
     def init_ytfetch(self, **kwargs):
         if self.yt_fetch is None:
@@ -821,7 +929,15 @@ class SegmentsToTimeline:
                 background_seen = True
 
     def execute(self):
-        data = self.global_results.get(self.params.get("segments_object"))
+        segments_key = self.params.get("segments_object")
+        data = self.global_results.get(segments_key)
+        if self.params.get("skip_if_no_segments") and not data:
+            logger.info(
+                "skip_if_no_segments: no segments at %r; leaving timeline unchanged",
+                segments_key,
+            )
+            self.timeline.set_end_times()
+            return {"timeline": self.timeline}
         self.generate_audio_segments()
 
         # set the end times for all background segments
