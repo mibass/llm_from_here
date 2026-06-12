@@ -1,0 +1,179 @@
+show_name: adlib_news_test
+
+global_params:
+  model_routing:
+    filter_model: openrouter:openai/gpt-4o-mini
+    structured_model: openrouter:openai/gpt-4o-mini
+    prose_model: openrouter:openai/gpt-4o
+  narrator_reverb: &narrator_reverb
+    enabled: true
+    mode: reverb
+    room_size: 0.32
+    damping: 0.48
+    wet_level: 0.20
+    dry_level: 0.93
+    width: 1.0
+  narrator_segment_types: &narrator_segment_types
+    - character 1
+    - default
+
+plugins:
+  - name: adlib_news
+    plugin: promptToSegment
+    class: PromptToSegment
+    cache: false
+    params:
+      system_message: >
+        You are a big shot New York live show producer, writer, and performer.
+        You are the show runner for Live From There. You are emotional, nostalgic,
+        and love music, podcasts, NPR, and long-form improv comedy.
+        The host is Dris Thile. Write in his voice—warm, witty, musicianly—like
+        Chris Thile on Live From Here, but always use the name Dris Thile, never Chris.
+      convert_script_to_segments: false
+      include_probability: 1.0
+      web_research:
+        track_used_subjects: true
+        used_subjects_supaset_name: adlib_news_bundles
+        max_subject_retries: 2
+        search_prompt: >
+          Find five distinct notable news stories from the past 48 hours suitable for a
+          lighthearted variety-show segment called "Adlib the News." Choose exactly one
+          story from each category: world, us, science, business, sports, culture, or odd.
+          Avoid tragedy, death, violence, disasters, war escalation, grim crime, and
+          depressing or graphic stories. Return factual summaries only.
+        search:
+          engine: exa
+          max_results: 8
+          max_total_results: 15
+          search_context_size: medium
+        extraction_model: llm_from_here.schemas.adlib_news_outputs:NewsResearchContext
+        extraction_prompt: >
+          Extract exactly five light, non-depressing current news stories from the search
+          results below. Use five distinct categories, one each from: world, us, science,
+          business, sports, culture, odd. For each story provide category, headline, a 2-3
+          sentence factual summary, and lists of replaceable tokens: proper_nouns, people,
+          places, adjectives, organizations. Reject tragedy, death-heavy, disaster, or grim
+          stories. Set subject to a pipe-separated list of the five headlines.
+
+          {{web_search_content}}
+
+          Sources:
+          {{web_search_sources}}
+      prompts:
+        - prompt: >
+            You are creating scrambled "Adlib the News" copy. Using the researched stories below,
+            rewrite ONLY the body of each story with surgical cross-story swaps.
+
+            Rules:
+            - Keep each story's original headline exactly unchanged.
+            - Make exactly 2 or 3 swaps per story, no more.
+            - Swap like-for-like only: place with place, person with person, organization with
+              organization, proper noun with proper noun, adjective with adjective.
+            - The listener must still understand the main topic of each story.
+            - Humor comes from one or two wrong details in an otherwise coherent story.
+            - Write 4-6 sentences per adlib_body in plain prose.
+            - Do not permute headlines across stories. Do not add new facts.
+
+            {{research_context}}
+
+            Return structured fields only:
+            stories — exactly five items, each with headline (unchanged from research),
+            adlib_body, swapped_tokens (2-3 strings naming what you swapped).
+          output_model: llm_from_here.schemas.adlib_news_outputs:AdlibNewsBundle
+        - prompt: >
+            Write an "Adlib the News" segment for Dris Thile on Live From There.
+            The scrambled stories below have correct headlines but bodies with 2-3 swapped words
+            from other stories. Read them in a deadpan NPR newscaster voice. Target 4-5 minutes
+            total read time. No applause until the very end.
+
+            Scrambled stories:
+            {{script}}
+
+            Return structured fields only:
+            music_prompt — a 270-second understated public-radio newswire instrumental bed
+            (max 280 seconds): muted piano, soft marimba, brushed snare, light bass, curious but
+            not dramatic, 70-85 BPM, instrumental only, no vocals. Do not name real artists;
+            intro_dialog — about 30-45 seconds, introduce the segment;
+            stories — exactly five structured readout objects, each with:
+              category — one of world, us, science, business, sports, culture, odd;
+              transition_line — a clear handoff such as "In sports news..." or "Meanwhile, in
+              science..." (vary them across the five stories);
+              headline — the unchanged headline from the scrambled story;
+              body — 4-6 sentences of plain prose based on adlib_body (no dict syntax, no field
+              names, no JSON);
+              emotion_tag — optional single bracketed Gemini tag for the whole story, or empty;
+              reaction_line — optional one short amused aside AFTER the body, or empty. Use
+              [laughs] or [amusement] on 3-5 stories total across the segment;
+            outro_dialog — one short closing sentence, about 10-20 seconds;
+            applause_duration_sec — integer between 3 and 6 for the closing applause only.
+
+            Never return Python dict strings. Never embed field names like adlib_headline in the
+            readout text. Put emotion tags only in emotion_tag, not inside body.
+          output_model: llm_from_here.schemas.adlib_news_outputs:AdlibNewsScript
+          segment_mapper: llm_from_here.schemas.adlib_news_outputs:adlib_news_to_segments
+
+  - name: adlib_news_audio
+    plugin: segmentsToTimeline
+    class: SegmentsToTimeline
+    cache: false
+    params:
+      chat_app_object: adlib_news_chat_app
+      skip_if_no_segments: true
+      segments_object: adlib_news_segments
+      segment_type_key: speaker
+      segment_value_key: dialog
+      single_background: true
+      background_end_fade_ms: 3000
+      segment_type_map:
+        background:
+          segment_type: music_generator_openrouter
+          background_music: true
+          arguments:
+            fallback_segment_type: youtube_search
+            additional_query_text: public radio newswire instrumental light percussion
+            use_music_search: true
+            truncation_duration_sec: 600
+        default:
+          segment_type: gemini_longform_TTS
+          arguments:
+            section: adlib_news
+        pause:
+          segment_type: silence_generator
+        audience:
+          segment_type: applause_generator
+      segment_transition_map:
+        - any:
+            background:
+              gain: -22
+              fade_in: 4000
+        - background:
+            character 1:
+              overlay_percentage: 12
+        - audience:
+            any:
+              overlay_percentage: 25
+        - any:
+            audience:
+              overlay_duration: 1
+              gain: -5
+              gain_match: true
+              fade_out: 500
+
+  - name: audio_render
+    plugin: audioTimeline
+    class: AudioTimeline
+    cache: true
+    params:
+      timeline_variable: adlib_news_audio_timeline
+      narrator_reverb: *narrator_reverb
+      narrator_segment_types: *narrator_segment_types
+
+  - name: final_audio
+    plugin: stitchAudio
+    class: StitchAudio
+    cache: true
+    params:
+      name: final_audio
+      output_format: mp3
+      segments_list:
+        - audio_render_file_path

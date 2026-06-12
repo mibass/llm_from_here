@@ -90,6 +90,39 @@ class IntroScriptLines(BaseModel):
     lines: list[IntroLine]
 
 
+def intro_lines_to_longform_segments(
+    lines: list[IntroLine] | list[dict],
+) -> list[dict]:
+    """Merge consecutive Dris Thile lines into blocks for gemini_longform_TTS."""
+    segments: list[dict] = []
+    narrator_parts: list[str] = []
+
+    def flush_narrator() -> None:
+        if narrator_parts:
+            segments.append(
+                {
+                    "speaker": "dris thile",
+                    "dialog": "\n\n".join(narrator_parts),
+                }
+            )
+            narrator_parts.clear()
+
+    for raw in lines:
+        line = raw if isinstance(raw, IntroLine) else IntroLine.model_validate(raw)
+        key = line.speaker.strip().lower()
+        if key == "music":
+            flush_narrator()
+            segments.append({"speaker": "music", "dialog": line.dialog})
+        elif key == "audience":
+            flush_narrator()
+            segments.append({"speaker": "audience", "dialog": line.dialog})
+        elif key == "dris thile":
+            narrator_parts.append(line.dialog)
+
+    flush_narrator()
+    return segments
+
+
 _GUEST_CATEGORIES = frozenset({"music", "comedy", "author", "actor", "improv"})
 
 

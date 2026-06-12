@@ -1,0 +1,118 @@
+show_name: story_longform
+
+global_params:
+  model_routing:
+    filter_model: openrouter:openai/gpt-4o-mini
+    structured_model: openrouter:openai/gpt-4o-mini
+    prose_model: openrouter:openai/gpt-4o
+  narrator_reverb: &narrator_reverb
+    enabled: true
+    mode: reverb
+    room_size: 0.32
+    damping: 0.48
+    wet_level: 0.20
+    dry_level: 0.93
+    width: 1.0
+  narrator_segment_types: &narrator_segment_types
+    - character 1
+    - default
+
+plugins:
+  - name: story
+    plugin: promptToSegment
+    class: PromptToSegment
+    cache: True
+    params:
+      system_message: >
+        You are a big shot New York live show producer, writer, and performer.
+        You are the show runner for Live From There. You are emotional, nostalgic,
+        and love music, podcasts, NPR, and long-form improv comedy.
+        The host is Dris Thile. Write in his voice—warm, witty, musicianly—like
+        Chris Thile on Live From Here, but always use the name Dris Thile, never Chris.
+      convert_script_to_segments: false
+      prompts:
+        - prompt: >
+            Generate a first-person story for Dris to tell on Live From There. Lean into the weird:
+            non-sequitur turns, surreal specifics, and mundane details that somehow become profound.
+            The premise should feel random, slightly wrong, and impossible to pitch in one sentence—
+            like a dream you half-remember after eating something questionable. It should still feel
+            like it's about nothing and everything at once. Told in the first person. At least 5 paragraphs,
+            no more than 5 minutes read aloud. Let joy, regret, nostalgia, and/or elation sneak in sideways;
+            never name those emotions directly. Never begin with Once upon a time.
+            Avoid neat morals or tidy endings. Things should happen—a conversation, a witnessed moment,
+            something Dris causes—but logic can wobble. Include at least one short, slightly unhinged
+            exchange. Favor odd metaphors, abrupt pivots, and deadpan asides. Lots of contractions and
+            colloquialisms. No title line, no headings, no markdown.
+            Return structured fields only:
+            music_prompt — a 180-second calm cinematic instrumental underscore beneath narration (max 184 seconds);
+            usually epic but restrained—slow-building orchestral strings, soft piano, warm pads, or sparse acoustic
+            layers; no drums, no percussion, no beats; 55–75 BPM; gentle, spacious, and unhurried—never busy, loud,
+            or upbeat; Instrumental only, no vocals. Do not name real artists.
+            transcript — one continuous first-person monologue (plain text, paragraph breaks allowed).
+            Optionally prefix clauses or paragraphs with at most ONE Gemini TTS emotion tag at the start
+            (e.g. [neutral], [positive], [curiosity], [amusement]); default [neutral] or [positive];
+            use stronger tags sparingly. Do not embed [APPLAUSE] cues in the transcript.
+            applause_duration_sec — integer between 3 and 6 for the closing applause.
+          output_model: llm_from_here.schemas.story_outputs:LongformStoryScript
+          segment_mapper: llm_from_here.schemas.story_outputs:longform_story_to_segments
+
+  - name: story_audio
+    plugin: segmentsToTimeline
+    class: SegmentsToTimeline
+    cache: True
+    params:
+      segments_object: story_segments
+      segment_type_key: speaker
+      segment_value_key: dialog
+      single_background: True
+      background_end_fade_ms: 3000
+      segment_type_map:
+        background:
+          segment_type: music_generator_openrouter
+          background_music: True
+          arguments:
+            fallback_segment_type: youtube_search
+            additional_query_text: calm cinematic epic instrumental no drums underscore
+            music_cue_profile: story
+            use_music_search: True
+            truncation_duration_sec: 600
+        default:
+          segment_type: gemini_longform_TTS
+        audience:
+          segment_type: applause_generator
+      segment_transition_map:
+        - any:
+            background:
+              gain: -28
+              fade_in: 4000
+        - background:
+            character 1:
+              overlay_percentage: 15
+        - audience:
+            any:
+              overlay_percentage: 25
+        - any:
+            audience:
+              overlay_duration: 1
+              gain: -5
+              gain_match: True
+              fade_out: 500
+
+  - name: audio_render
+    plugin: audioTimeline
+    class: AudioTimeline
+    cache: False
+    params:
+      timeline_variable: story_audio_timeline
+      narrator_reverb: *narrator_reverb
+      narrator_segment_types: *narrator_segment_types
+
+  - name: final_audio
+    plugin: stitchAudio
+    class: StitchAudio
+    cache: False
+    params:
+      name: final_audio
+      output_format: mp3
+      segments_list:
+        - audio_render_file_path

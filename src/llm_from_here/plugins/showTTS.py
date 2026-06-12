@@ -16,6 +16,7 @@ import openai
 from llm_from_here.llm_env import (
     build_openrouter_client,
     get_openrouter_tts_model,
+    get_openrouter_tts_response_format,
     get_openrouter_tts_voice,
     is_openrouter_free_mode,
 )
@@ -25,7 +26,18 @@ logger = logging.getLogger(__name__)
 dotenv.load_dotenv()
 
 
-def _segment_from_openrouter_speech_file(path: str) -> AudioSegment:
+def _segment_from_openrouter_pcm_file(path: str, sample_rate: int = 24000) -> AudioSegment:
+    """Decode raw s16le mono PCM returned by Gemini TTS (no container header)."""
+    return AudioSegment.from_file(
+        path,
+        format="raw",
+        sample_width=2,
+        frame_rate=sample_rate,
+        channels=1,
+    )
+
+
+def _segment_from_openrouter_speech_file(path: str, *, response_format: str = "mp3") -> AudioSegment:
     """Decode binary returned by ``audio.speech.create`` (OpenRouter / OpenAI-compatible)."""
     size = os.path.getsize(path)
     if size < 64:
@@ -46,6 +58,8 @@ def _segment_from_openrouter_speech_file(path: str) -> AudioSegment:
         return AudioSegment.from_file(path, format="mp3")
     if head.startswith(b"OggS"):
         return AudioSegment.from_file(path, format="ogg")
+    if response_format == "pcm":
+        return _segment_from_openrouter_pcm_file(path)
     try:
         return AudioSegment.from_file(path)
     except CouldntDecodeError as err:
@@ -102,6 +116,11 @@ class ShowTextToSpeech:
         self.tts_voice = get_openrouter_tts_voice()
         self._openrouter_client: openai.OpenAI | None = None
 
+    def speak_longform(self, prompt, output_file, voice=None, model=None):
+        """Send a full Gemini advanced TTS prompt without narrator text filtering."""
+        logger.info("Using long-form Gemini TTS (prompt length %s chars)", len(prompt))
+        self._speak_openrouter_tts(prompt, output_file, voice=voice, model=model)
+
     def speak(self, text, output_file, fast=False, voice=None, model=None):
         if fast or is_openrouter_free_mode():
             if is_openrouter_free_mode() and not fast:
@@ -142,20 +161,23 @@ class ShowTextToSpeech:
 
         use_model = model or self.tts_model_name
         use_voice = voice or self.tts_voice
+        response_format = get_openrouter_tts_response_format(use_model)
 
-        # OpenRouter validates response_format strictly (typically mp3|pcm only).
         response = client.audio.speech.create(
             model=use_model,
             voice=use_voice,
             input=text,
-            response_format="mp3",
+            response_format=response_format,
         )
 
-        fd, tmp_audio = tempfile.mkstemp(suffix=".mp3", prefix="llmfh_openrouter_tts_")
+        suffix = ".pcm" if response_format == "pcm" else ".mp3"
+        fd, tmp_audio = tempfile.mkstemp(suffix=suffix, prefix="llmfh_openrouter_tts_")
         os.close(fd)
         try:
             response.stream_to_file(tmp_audio)
-            audio = _segment_from_openrouter_speech_file(tmp_audio)
+            audio = _segment_from_openrouter_speech_file(
+                tmp_audio, response_format=response_format
+            )
             audio.export(output_file, format="wav")
         finally:
             try:

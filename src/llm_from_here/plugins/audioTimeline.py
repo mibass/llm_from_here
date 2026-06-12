@@ -200,7 +200,8 @@ class AudioTimeline:
         logging.debug(f"Audio duration: {len(audio)} after looping")
 
         #process audio
-        audio = self._trim_leading_silence(audio)
+        if (type or "").lower() != "pause":
+            audio = self._trim_leading_silence(audio)
         if last_fg_entry and gain_match and label == SegmentLabel.FOREGROUND:
             audio = match_target_amplitude(audio, target_dBFS=last_fg_entry['audio'].dBFS)
         logger.info(f"Gain is {gain}")

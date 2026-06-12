@@ -84,3 +84,41 @@ def test_guest_list_passed_to_template_contains_unique_names():
         prompt_used = rendered_captured[0]
         assert "Ann" in prompt_used
         assert "Bob" in prompt_used
+
+
+def test_longform_segments_merges_consecutive_dris_lines():
+    _VALID_MUSIC = (
+        "[MUSIC Create a 180-second instrumental track at 110 BPM. Live acoustic bluegrass intro. "
+        "Banjo, mandolin, upright bass, brushed drums, warm and energetic. Instrumental only, no vocals.]"
+    )
+    params = {
+        "system_message": "sys",
+        "script_prompt": "Guests: {{ guests }}",
+        "json_script_prompt": "structure",
+        "guests_parameter": "guest_selection_guests",
+        "extra_prompts": [],
+        "longform_segments": True,
+    }
+    global_params = {
+        "guest_selection_guests": [
+            {"guest_name": "Pat Smith", "guest_category": "music"},
+        ]
+    }
+    with patch("llm_from_here.plugins.introFromGuestlist.gpt.ChatApp") as MockChat:
+        mock_inst = MagicMock()
+        MockChat.return_value = mock_inst
+        mock_inst.chat.return_value = "prose script"
+        mock_inst.run_structured.return_value = {
+            "lines": [
+                {"speaker": "Music", "dialog": _VALID_MUSIC},
+                {"speaker": "Dris Thile", "dialog": "Hello."},
+                {"speaker": "Dris Thile", "dialog": "Welcome."},
+                {"speaker": "Audience", "dialog": "[APPLAUSE duration 5]"},
+            ]
+        }
+        intro = IntroFromGuestlist(params, global_params, "intro_longform")
+        out = intro.execute()
+        assert len(out["intro"]) == 3
+        assert out["intro"][1]["speaker"] == "dris thile"
+        assert "Hello." in out["intro"][1]["dialog"]
+        assert "Welcome." in out["intro"][1]["dialog"]

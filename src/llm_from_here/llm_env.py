@@ -66,12 +66,21 @@ def get_openrouter_chat_model() -> str:
 def get_openrouter_tts_model() -> str:
     return (
         os.getenv("OPENROUTER_TTS_MODEL", "").strip()
-        or "openai/gpt-4o-mini-tts-2025-12-15"
+        or "google/gemini-3.1-flash-tts-preview"
     )
 
 
 def get_openrouter_tts_voice() -> str:
-    return os.getenv("OPENROUTER_TTS_VOICE", "alloy").strip() or "alloy"
+    # Sadachbia: male, lively (Gemini prebuilt voice). Override via OPENROUTER_TTS_VOICE.
+    return os.getenv("OPENROUTER_TTS_VOICE", "Sadachbia").strip() or "Sadachbia"
+
+
+def get_openrouter_tts_response_format(model: str | None = None) -> str:
+    """Gemini TTS on OpenRouter requires pcm; most other speech models use mp3."""
+    slug = (model or get_openrouter_tts_model()).lower()
+    if "gemini" in slug and "tts" in slug:
+        return "pcm"
+    return "pcm" if os.getenv("OPENROUTER_TTS_RESPONSE_FORMAT", "").strip().lower() == "pcm" else "mp3"
 
 
 def get_openrouter_music_model() -> str:
@@ -166,6 +175,25 @@ def get_prose_model() -> str:
         "LLMFH_PROSE_MODEL",
         "openrouter:openai/gpt-4o",
     )
+
+
+def get_web_search_engine() -> str:
+    """OpenRouter web search engine: auto, native, exa, firecrawl, or parallel."""
+    return os.getenv("LLMFH_WEB_SEARCH_ENGINE", "").strip() or "exa"
+
+
+def get_web_search_max_results() -> int:
+    raw = os.getenv("LLMFH_WEB_SEARCH_MAX_RESULTS", "").strip()
+    if raw:
+        return max(1, min(25, int(raw)))
+    return 5
+
+
+def get_web_search_max_total_results() -> int | None:
+    raw = os.getenv("LLMFH_WEB_SEARCH_MAX_TOTAL_RESULTS", "").strip()
+    if not raw:
+        return 10
+    return max(1, int(raw))
 
 
 def check_ollama_available(host: str = "127.0.0.1", port: int = 11434) -> bool:

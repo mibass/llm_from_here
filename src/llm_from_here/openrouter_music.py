@@ -26,8 +26,9 @@ LYRIA_CONTENT_FILTER_MSG = "OpenRouter Lyria stream returned codebook tokens (co
 _LYRIA_CODEBOOK_RE = re.compile(r"\[\[[A-Z]\d+\]\]")
 _LYRIA_DEFAULT_RETRY_DELAYS_SEC = (2.0, 8.0, 20.0)
 _LYRIA_SIMPLIFIED_FALLBACK_PROMPT = (
-    "Create a 180-second instrumental track at 90 BPM. "
-    "Live acoustic folk instrumental. Acoustic guitar, light mandolin, upright bass. "
+    "Create a 180-second calm cinematic instrumental underscore at 65 BPM. "
+    "Slow orchestral strings, soft piano, warm ambient pads. "
+    "Epic but gentle and spacious. No drums, no percussion, no beats. "
     "Instrumental only, no vocals."
 )
 
@@ -102,6 +103,29 @@ def normalize_music_prompt(text: str) -> str:
     prompt = prompt.rstrip("]").strip()
     if "no vocal" not in prompt.lower():
         prompt += " Instrumental only, no vocals."
+    return prompt
+
+
+def normalize_story_music_prompt(text: str) -> str:
+    """Story-bed cue: calm cinematic underscore, no drums/percussion."""
+    prompt = normalize_music_prompt(text)
+    lower = prompt.lower()
+    extras: list[str] = []
+    if not any(
+        phrase in lower
+        for phrase in ("no drum", "no percussion", "no beat", "without drums")
+    ):
+        extras.append("No drums, no percussion, no beats.")
+    if not any(
+        word in lower for word in ("calm", "gentle", "spacious", "soft", "slow")
+    ):
+        extras.append("Calm, spacious, and gentle.")
+    if not any(
+        word in lower for word in ("epic", "cinematic", "orchestral", "ambient")
+    ):
+        extras.append("Cinematic and subtly epic.")
+    if extras:
+        prompt = prompt.rstrip(".") + ". " + " ".join(extras)
     return prompt
 
 

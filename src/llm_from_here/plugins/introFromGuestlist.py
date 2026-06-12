@@ -1,7 +1,7 @@
 import json
 import llm_from_here.plugins.gpt as gpt
 from llm_from_here.llm_env import get_prose_model
-from llm_from_here.schemas.llm_outputs import IntroScriptLines
+from llm_from_here.schemas.llm_outputs import IntroScriptLines, intro_lines_to_longform_segments
 from jsonschema import validate
 from jsonschema.exceptions import ValidationError
 import logging
@@ -84,10 +84,18 @@ class IntroFromGuestlist:
         return extra_prompt_responses
 
     def execute(self):
+        intro_segments = self.intro
+        if self.params.get("longform_segments"):
+            intro_segments = intro_lines_to_longform_segments(self.intro)
+            logger.info(
+                "Merged %s intro lines into %s long-form segments",
+                len(self.intro),
+                len(intro_segments),
+            )
 
         result = {
             "script": self.script,
-            "intro": self.intro,
+            "intro": intro_segments,
             "guests": self.guests,
             "extra_prompt_responses": self.extra_prompt_responses,
             "chat_app": self.chat_app
