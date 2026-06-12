@@ -1,7 +1,10 @@
 ---
 name: publish-github-release
 description: >-
-  Publishes a new GitHub Release (semver tag + notes) for llm_from_here so CI workflows that checkout releases/latest pick up new code. Use when shipping main after merging work, cutting v*.**.**, triggering Episode Release workflows, or when the user asks to publish or ship a release.
+  Publishes a semver GitHub Release (tag + notes) for llm_from_here after merging
+  to main. Episode releases run locally via the release-episode skill, not GitHub
+  Actions. Use when shipping main, cutting v*.**.**, or when the user asks to
+  publish or ship a version tag.
 disable-model-invocation: true
 ---
 
@@ -9,13 +12,12 @@ disable-model-invocation: true
 
 ## Why this matters
 
-`.github/workflows/release_episode.yml` and `.github/workflows/release_episode_test.yml` **checkout the latest GitHub Release tag**, not `main`. Until a new **GitHub Release** exists pointing at merged commits, those workflows still run **older code**.
+GitHub Releases provide **version tags and release notes** for shipped commits. Episode publishes run **locally** from the repo checkout (see [release-episode/SKILL.md](../release-episode/SKILL.md)); there are no GitHub Actions episode workflows.
 
 ## Preconditions
 
 - [ ] Desired commits are **merged into default branch** (typically `main`) and CI on that branch is green enough for your judgment.
 - [ ] **`gh` is authenticated** with repo scope (`gh auth status`).
-- [ ] GitHub Actions secrets exist (`OPENROUTER_API_KEY`, `YT_API_KEY`, etc.). Refresh via `.env` + `gh secret set` if needed (never echo secret values in chat logs).
 
 ## One canonical flow
 
@@ -53,23 +55,20 @@ git push origin v0.X.Y
 gh release create v0.X.Y --repo mibass/llm_from_here --generate-notes
 ```
 
-### 4. Smoke-verify workflows
+### 4. Smoke-verify locally (optional)
 
-- **Test Episode Release** (`workflow_dispatch`): pulls **`releases/latest`**. Run once after publishing so ShowRunner runs against **the tag just shipped**.
-- **Episode Release** (scheduled prod): ensure **`LLMFH_ENV`** expectations match prod Podbean behavior.
-- Workflows upload **`outputs/**/*.log`** as artifacts (`show_runner.log`, `agent_trace.log`) on success or failure.
-- **`configs/configv3.yaml`** is the show config in release workflows. Lyria beds are **off unless** you set **`LLMFH_LYRIA_ENABLED=1`** in workflow env/vars (otherwise intro/story music uses YouTube fallback).
+After tagging, run a **dev** ShowRunner smoke from the tagged commit if you want parity with the release:
 
-Optional Actions parity:
+```bash
+git checkout v0.X.Y   # or stay on main if tag points there
+uv run pytest tests/test*.py
+uv run python scripts/preflight_env.py --strict --skip-podbean
+uv run python -m llm_from_here.showRunner configs/configv3.yaml --output-dir outputs
+```
 
-- If production uploads rely on **`SUPABASE_STORAGE_BUCKET`**, ensure CI workflows expose it via **`env`** or duplicate YAML bucket naming (`configs/configv3.yaml`).
-
-### 5. Never expose secrets
-
-Sync `.env` → Actions secrets with `gh secret set` piping stdin only; never print secret bodies into transcripts.
+For prod Podbean publish, follow [release-episode/SKILL.md](../release-episode/SKILL.md) with `LLMFH_ENV=prod` and `--clear-cache`.
 
 ## Quick sanity checklist before tagging
 
 - [ ] Version bump committed (`__init__.py` matches forthcoming tag).
 - [ ] Default branch pushed **before** `gh release create`.
-- [ ] Release workflows documented caveat remembered (they ignore unpublished commits).

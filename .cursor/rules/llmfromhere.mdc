@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## Canonical config and outputs
 
-- Production show config: `configs/configv3.yaml` (CI/release workflows use this).
+- Production show config: `configs/configv3.yaml` (local prod releases use this).
 - Run output: `{output_dir}/{show_name}_runN/` (default `outputs/`).
 - Per-run logs: `show_runner.log` (main), `agent_trace.log` (guest agent + filter LLM). Legacy `showRunner.log` is not written.
 

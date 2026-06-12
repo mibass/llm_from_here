@@ -77,18 +77,16 @@ Use **`--dry-run`** to preview **`db push`** without applying migrations or crea
 
 If **`projects create`** fails because the name exists, choose another name **or** switch to link-only mode with **`SUPABASE_PROJECT_REF`** for that project and rerun.
 
-## GitHub Actions secrets
+## Runtime credentials
 
-After bootstrap, set repository secrets used by [release_episode.yml](../.github/workflows/release_episode.yml) and [release_episode_test.yml](../.github/workflows/release_episode_test.yml):
+After bootstrap, set **local `.env`** (or shell exports) for ShowRunner prod releases:
 
-| Secret | Value |
-| ------ | ----- |
-| **`SUPASET_URL`** | Same as **`SUPABASE_URL`** |
-| **`SUPASET_KEY`** | Same as **`SUPABASE_SERVICE_ROLE_KEY`** |
+| Variable | Purpose |
+| -------- | ------- |
+| **`SUPABASE_URL`** / **`SUPASET_URL`** | Project API URL |
+| **`SUPABASE_SERVICE_ROLE_KEY`** / **`SUPASET_KEY`** | Service role key for SupaSet / storage |
 
-(Optionally rename workflows later to `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`; until then, map canonical names to the existing secret names.)
-
-**Never** store **`SUPABASE_ACCESS_TOKEN`** in Actions for this flow—provision Supabase locally, then paste URL + service role key only.
+**Never** store **`SUPABASE_ACCESS_TOKEN`** in git—provision Supabase locally, then paste URL + service role key into `.env` only.
 
 ## Manual fallback
 

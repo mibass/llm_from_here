@@ -101,7 +101,7 @@ See [docs/llm_schema_inventory.md](docs/llm_schema_inventory.md) for structured-
 
 ### Show pipeline (`configs/configv3.yaml`)
 
-Production and GitHub Actions use **[configs/configv3.yaml](configs/configv3.yaml)** (older configs: `config.yaml`, `configv2.yaml`).
+Production episode releases use **[configs/configv3.yaml](configs/configv3.yaml)** (older configs: `config.yaml`, `configv2.yaml`).
 
 **Model routing** — `global_params.model_routing` in YAML (overridable via env):
 
