@@ -101,7 +101,8 @@ Episode release preflight:
 - [ ] Working tree state acceptable (uncommitted changes intentional?)
 - [ ] For prod: user confirmed Podbean publish intent
 - [ ] For prod: `--clear-cache` included (unless user asked to keep cache)
-- [ ] .env secrets present (never echo values): OPENROUTER_API_KEY, YT_API_KEY, FREESOUND_API_KEY, PODBEAN_*, SUPASET_*
+- [ ] .env secrets present (never echo values): OPENROUTER_API_KEY, YT_API_KEY, FREESOUND_API_KEY, PODBEAN_*, SUPABASE_* / SUPASET_*
+- [ ] Supabase project is active/unpaused and its configured host resolves
 - [ ] preflight_env.py passed
 ```
 
@@ -111,6 +112,17 @@ uv run python scripts/preflight_env.py --strict                  # prod
 ```
 
 Optional: `preflight_env.py --require-ffmpeg --require-deno` for YouTube download parity.
+
+If ShowRunner fails early in `guestSelection`, `SupaSet`, or `SupaQueue` with `httpx.ConnectError`, `nodename nor servname provided`, or Supabase DNS failures, check the configured `SUPABASE_URL` / `SUPASET_URL` without exposing secrets. A paused Supabase project may need to be re-enabled before its project host resolves again:
+
+```bash
+# Requires local-only SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF in .env.
+curl -X POST \
+  -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+  "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/restore"
+```
+
+Poll `GET /v1/projects/${SUPABASE_PROJECT_REF}` until status is no longer `INACTIVE`, `COMING_UP`, or `RESTORING`, and verify the configured Supabase host resolves. Do not rerun prod publishing until Supabase resolves and the strict preflight still passes.
 
 ## Run ShowRunner (canonical)
 
