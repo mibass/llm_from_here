@@ -111,20 +111,40 @@ class SegmentsToTimeline:
         if match:
             music_type = match.group(1)
         else:
-            music_type = text
+            # Strip a leading bracket label such as "[BACKGROUND: ...]" or "[SFX: ...]"
+            # so the Freesound query is the inner text, not the decorated cue.
+            label_match = re.fullmatch(r"\s*\[[A-Za-z ]+:?\s*(.*?)\]\s*", text)
+            music_type = label_match.group(1) if label_match else text
 
         # extract the dir from output_file
         output_dir = os.path.dirname(output_file)
         self.freesound_fetch.out_dir = output_dir
-        query = f"{music_type} {additional_query_text}"
+        query = f"{music_type} {additional_query_text}".strip()
         logger.info(
             f"Retreiving freesound music with query: {query}, duration: {duration_min_sec} to {duration_max_sec}"
         )
-        self.freesound_fetch.search_and_download_top_samples(
-            query, 1, {"filter": f"duration:[{duration_min_sec} TO {duration_max_sec}]"}
-        )
-        shutil.move(self.freesound_fetch.temp_files[-1], output_file)
-        return True
+        before = len(self.freesound_fetch.temp_files)
+        # Try the duration-constrained search first, then fall back to an unconstrained
+        # search so a slightly-too-specific duration filter doesn't drop the segment.
+        attempts = [
+            {"filter": f"duration:[{duration_min_sec} TO {duration_max_sec}]"},
+            {},
+        ]
+        for attempt in attempts:
+            try:
+                self.freesound_fetch.search_and_download_top_samples(query, 1, attempt)
+            except Exception as e:
+                logger.warning(
+                    "Freesound search/download failed for query %r; skipping segment: %s",
+                    query,
+                    e,
+                )
+                return None
+            if len(self.freesound_fetch.temp_files) > before:
+                shutil.move(self.freesound_fetch.temp_files[-1], output_file)
+                return True
+        logger.warning("No freesound results for query %r; skipping segment.", query)
+        return None
 
     def music_generator_openrouter(self, text, output_file, **kwargs):
         music_cue_profile = kwargs.pop("music_cue_profile", None)

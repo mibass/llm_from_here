@@ -8,30 +8,22 @@ plugins:
     cache: True
     retries: 3
     params:
-      judge_model: openai/gpt-4o-mini
-      judge_system_message: >
-        You are an improv director and quality judge. Score each turn on coherence,
-        "yes and" adherence, and character consistency (1–4). Use pass_turn=true only
-        when the line is playable and builds the scene. For sound-effect selection,
-        pick the candidate index that best matches the staged cue and dialogue context.
+      setup_model: openrouter:openai/gpt-4o-mini
       setup_system_message: >
         You are a long-form improv director. Establish a complete scene setup: a grounded
         contemporary environment, distinct characters with clear wants, a compelling
         inciting incident, a short background ambient search query for Freesound, and
         3–5 sfx_palette entries (short searchable sound labels).
       target_turn_count: 20
-      max_regen_per_turn: 2
-      sfx_candidates: 5
-      judge_pass_threshold: 3
       character_slots:
-        - model: google/gemini-2.5-flash
-          tts_voice: nova
+        - model: openrouter:google/gemini-2.5-flash
+          tts_voice: Puck
           system_message: >
             You are an improv performer. Embody your character fully, listen deeply,
             and build on what your scene partner offers. Apply "yes and" in every response.
             Speak only as your character.
-        - model: openai/gpt-4o-mini
-          tts_voice: echo
+        - model: openrouter:openai/gpt-4o-mini
+          tts_voice: Fenrir
           system_message: >
             You are an improv performer. Embody your character fully, listen deeply,
             and build on what your scene partner offers. Apply "yes and" in every response.

@@ -1,4 +1,10 @@
-"""Agentic improv scene generator: setup, per-slot models, SFX search+judge, turn judge."""
+"""Agentic improv scene generator: scene setup, per-slot performer models, SFX cues.
+
+The committed runtime path does not judge turns with an LLM. Each performer model
+returns a structured turn (spoken dialog + optional stage direction + concrete SFX
+cues), and the scene is trusted as generated. Scene-quality judging lives in
+dev-only tooling (see ``evals/eval_improv_agent.py``), not here.
+"""
 
 from __future__ import annotations
 
@@ -13,33 +19,50 @@ import yaml
 
 from llm_from_here.llm_session import LlmSession
 from llm_from_here.plugins.freesoundfetch import FreeSoundFetch
-from llm_from_here.schemas.improv_outputs import (
-    SceneSetup,
-    SfxJudgement,
-    TurnJudgement,
-)
+from llm_from_here.schemas.improv_outputs import ImprovTurn, SceneSetup
 
 logger = logging.getLogger(__name__)
 
-_BRACKET_CUE_RE = re.compile(r"\[([^\]]+)\]")
+_DEFAULT_MODEL = "openrouter:openai/gpt-4o-mini"
+
+_ANY_BRACKET_RE = re.compile(r"\[([^\]]+)\]")
+# Only explicit sound cues become SFX; arbitrary stage directions like
+# ``[Alice leans closer]`` are not treated as Freesound queries.
+_SFX_CUE_RE = re.compile(r"\[(?:SFX|SOUND)\s*:\s*([^\]]+)\]", re.IGNORECASE)
 
 
 def _strip_bracket_cues(text: str) -> str:
-    return _BRACKET_CUE_RE.sub("", text).replace("  ", " ").strip()
+    """Remove any bracketed content (stage directions / cues) from spoken text."""
+    return _ANY_BRACKET_RE.sub("", text).replace("  ", " ").strip()
 
 
 def _extract_bracket_cues(text: str) -> list[str]:
-    raw = _BRACKET_CUE_RE.findall(text)
+    """Extract only explicit ``[SFX: ...]`` / ``[SOUND: ...]`` cues (compat fallback)."""
     out: list[str] = []
-    for r in raw:
-        s = r.strip()
-        if not s:
-            continue
-        low = s.lower()
-        if low.startswith("background") or low.startswith("music"):
-            continue
-        out.append(s)
+    for raw in _SFX_CUE_RE.findall(text or ""):
+        s = raw.strip()
+        if s:
+            out.append(s)
     return out
+
+
+def _normalize_sfx_query(cue: str) -> str:
+    """Trim a cue into a short, concrete Freesound-style search query."""
+    s = re.sub(r"\s+", " ", (cue or "").strip())
+    s = s.strip(" .!?,;:\"'")
+    return s[:120]
+
+
+def _clean_dialog(dialog: str, name: str) -> str:
+    """Strip bracket cues, surrounding quotes, and leaked ``Name:`` speaker prefixes."""
+    cleaned = _strip_bracket_cues(dialog or "")
+    prefix_re = re.compile(rf"^\s*{re.escape(name)}\s*:\s*", re.IGNORECASE)
+    prev: str | None = None
+    while prev != cleaned:
+        prev = cleaned
+        cleaned = prefix_re.sub("", cleaned)
+    cleaned = cleaned.strip().strip('"').strip()
+    return cleaned or (dialog or "").strip()
 
 
 _DEFAULT_SFX_MAP: dict[str, Any] = {
@@ -58,12 +81,12 @@ _DEFAULT_SFX_MAP: dict[str, Any] = {
             "duration_max_sec": 200,
         },
     },
-    "default": {"segment_type": "fast_TTS", "arguments": {}},
+    "default": {"segment_type": "slow_TTS", "arguments": {}},
 }
 
 
 class ImprovAgent:
-    """Multi-model improv pipeline with LLM judge and Freesound SFX selection."""
+    """Multi-model improv pipeline: structured performer turns and Freesound SFX cues."""
 
     def __init__(self, params: dict[str, Any], global_results: dict[str, Any], plugin_instance_name: str):
         self.params = params
@@ -78,29 +101,28 @@ class ImprovAgent:
         if not self.character_slots_cfg:
             raise ValueError("improvAgent requires params.character_slots (non-empty list).")
 
-        judge_model = (params.get("judge_model") or "").strip() or "openai/gpt-4o-mini"
-        judge_sys = params.get("judge_system_message") or (
-            "You are an improv director and quality judge. "
-            "Score turns and pick sound effects from candidates."
+        self.setup_system_message = params.get("setup_system_message") or (
+            "You are a long-form improv director. Establish a complete scene setup."
         )
-        self.judge_session = LlmSession(judge_sys, model_slug=judge_model)
+
+        # Scene setup uses a single OpenRouter session. Prefer an explicit
+        # setup_model; otherwise reuse the first character slot's model. No judge.
+        setup_model = (params.get("setup_model") or "").strip()
+        if not setup_model:
+            setup_model = (self.character_slots_cfg[0].get("model") or "").strip()
+        setup_model = setup_model or _DEFAULT_MODEL
+        self.setup_session = LlmSession(self.setup_system_message, model_slug=setup_model)
 
         self.slot_sessions: list[LlmSession] = []
         for slot_cfg in self.character_slots_cfg:
-            m = (slot_cfg.get("model") or "").strip() or "openai/gpt-4o-mini"
+            m = (slot_cfg.get("model") or "").strip() or _DEFAULT_MODEL
             sys_m = slot_cfg.get("system_message") or (
                 "You are an improv performer. Listen, yes-and, speak only in character."
             )
             self.slot_sessions.append(LlmSession(sys_m, model_slug=m))
 
         self.target_turn_count = int(params.get("target_turn_count", 20))
-        self.max_regen_per_turn = int(params.get("max_regen_per_turn", 2))
-        self.sfx_candidates = int(params.get("sfx_candidates", 5))
-        self.judge_pass_threshold = int(params.get("judge_pass_threshold", 3))
         self.scene_injection = (params.get("scene_injection") or "").strip()
-        self.setup_system_message = params.get("setup_system_message") or (
-            "You are a long-form improv director. Establish a complete scene setup."
-        )
 
         self.audit_log: list[dict[str, Any]] = []
         self.scene: SceneSetup | None = None
@@ -110,10 +132,18 @@ class ImprovAgent:
         for i, ch in enumerate(scene.characters):
             slot_cfg = self.character_slots_cfg[i] if i < len(self.character_slots_cfg) else {}
             voice = (slot_cfg.get("tts_voice") or "").strip() or None
+            tts_model = (slot_cfg.get("tts_model") or "").strip() or None
+            arguments: dict[str, Any] = {}
+            if voice:
+                arguments["voice"] = voice
+            if tts_model:
+                arguments["tts_model"] = tts_model
             key = f"character {ch.slot}"
+            # slow_TTS routes to the Google/Gemini TTS path so per-character voices apply
+            # (fast_TTS uses gTTS and ignores the voice parameter).
             base[key] = {
-                "segment_type": "fast_TTS",
-                "arguments": ({**({"voice": voice} if voice else {})}),
+                "segment_type": "slow_TTS",
+                "arguments": arguments,
             }
         return base
 
@@ -134,7 +164,7 @@ class ImprovAgent:
             f"{inj}\n"
             "Respond using the required structured output schema only."
         )
-        data = self.judge_session.run_structured(prompt, SceneSetup, log_prompt=True)
+        data = self.setup_session.run_structured(prompt, SceneSetup, log_prompt=True)
         scene = SceneSetup.model_validate(data)
         if len(scene.characters) != n:
             raise ValueError(
@@ -162,74 +192,57 @@ class ImprovAgent:
                 "Acknowledge in one short in-character line (this primes your voice)."
             )
 
-    def _collect_freesound_candidates(self, query: str) -> list[Any]:
-        if not query.strip():
-            return []
-        try:
-            filt = "duration:[1 TO 120]"
-            it = self.freesound_fetch.search_samples(query, {"filter": filt})
-            sounds: list[Any] = []
-            for s in it:
-                sounds.append(s)
-                if len(sounds) >= self.sfx_candidates:
-                    break
-            return sounds
-        except Exception as e:
-            logger.warning("Freesound search failed for %r: %s", query, e)
-            return []
-
-    def _judge_pick_sfx(self, cue: str, dialog_context: str, sounds: list[Any]) -> tuple[int | None, str]:
-        if not sounds:
-            return None, "no candidates"
-        lines = []
-        for idx, s in enumerate(sounds):
-            desc = getattr(s, "description", "") or ""
-            if not isinstance(desc, str):
-                desc = str(desc)
-            desc = desc[:240].replace("\n", " ")
-            lines.append(f"{idx}: id={getattr(s, 'id', '?')} name={getattr(s, 'name', '?')!r} desc={desc!r}")
-        prompt = (
-            f"{self.params.get('judge_system_message') or ''}\n\n"
-            "Pick the single best Freesound sample index for this staged cue.\n"
-            f"Cue from script: {cue!r}\n"
-            f"Surrounding dialogue context:\n{dialog_context}\n\n"
-            "Candidates:\n"
-            + "\n".join(lines)
-            + "\n\nReturn structured SfxJudgement with chosen_index and brief reasoning."
+    def _turn_prompt(self, scene: SceneSetup, ch_name: str, transcript_parts: list[str]) -> str:
+        palette = ", ".join(scene.sfx_palette) if scene.sfx_palette else ""
+        palette_hint = (
+            f"Prefer sounds from this palette when apt: {palette}. " if palette else ""
         )
-        raw = self.judge_session.run_structured(prompt, SfxJudgement, log_prompt=True)
-        j = SfxJudgement.model_validate(raw)
-        if j.chosen_index < 0 or j.chosen_index >= len(sounds):
-            logger.warning("SfxJudgement index out of range; clamping. got=%s", j.chosen_index)
-            return 0, j.reasoning
-        return j.chosen_index, j.reasoning
-
-    def _judge_turn(
-        self,
-        scene: SceneSetup,
-        transcript: str,
-        slot: int,
-        character_name: str,
-        line: str,
-    ) -> TurnJudgement:
-        prompt = (
-            f"{self.params.get('judge_system_message') or ''}\n\n"
-            "Score the latest improvised line for a two-hander scene.\n"
-            f"Setting: {scene.setting}\nScenario: {scene.scenario}\n\n"
-            f"Transcript so far:\n{transcript}\n\n"
-            f"Latest line from {character_name} (slot {slot}):\n{line}\n\n"
-            "Return TurnJudgement. Use pass_turn=true only if the line is playable, "
-            "yes-ands the partner, and stays in character. "
-            "end_scene=true only if the scene should naturally end now (rare)."
+        return (
+            "Transcript so far:\n"
+            + "\n".join(transcript_parts)
+            + f"\n\nYour turn, {ch_name}. Deliver the next beat as ONE structured turn:\n"
+            "- dialog: one or two sentences of spoken words only. Do NOT prefix your name. "
+            "Do NOT include stage directions or bracketed cues in dialog.\n"
+            "- stage_direction: optional short acting note (not spoken).\n"
+            "- sfx_cues: zero to two concrete, audible sound-effect search queries. "
+            f"{palette_hint}"
+            "Use real sounds (e.g. 'coffee machine steam', 'doorbell chime', 'chair scrape'), "
+            "not emotions or gestures. Leave empty if no sound is warranted.\n"
         )
-        raw = self.judge_session.run_structured(prompt, TurnJudgement, log_prompt=True)
-        return TurnJudgement.model_validate(raw)
 
-    def _scores_meet_threshold(self, t: TurnJudgement) -> bool:
-        if not t.pass_turn:
-            return False
-        th = self.judge_pass_threshold
-        return t.coherence >= th and t.yes_and >= th and t.character_consistency >= th
+    def _sfx_segments_for_turn(
+        self, turn: ImprovTurn, turn_index: int
+    ) -> list[dict[str, Any]]:
+        """Build sound-effect segments from structured cues (+ explicit bracket fallback)."""
+        cues: list[str] = list(turn.sfx_cues)
+        cues += _extract_bracket_cues(turn.stage_direction)
+        cues += _extract_bracket_cues(turn.dialog)
+
+        segments: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for cue in cues:
+            query = _normalize_sfx_query(cue)
+            if not query or query.lower() in seen:
+                continue
+            seen.add(query.lower())
+            segments.append(
+                {
+                    "speaker": "sound effect",
+                    "dialog": query,
+                    "character_name": None,
+                    "sfx_search_query": query,
+                    "sfx_freesound_id": None,
+                }
+            )
+            self.audit_log.append(
+                {
+                    "phase": "sfx",
+                    "turn_index": turn_index,
+                    "cue": cue,
+                    "query": query,
+                }
+            )
+        return segments
 
     def _generation_loop(self, scene: SceneSetup) -> tuple[list[dict[str, Any]], str]:
         segments: list[dict[str, Any]] = []
@@ -245,115 +258,41 @@ class ImprovAgent:
         transcript_parts.append(f"[ambient] {scene.background_sound}")
 
         turns_done = 0
-        end_scene = False
-        while turns_done < self.target_turn_count and not end_scene:
+        while turns_done < self.target_turn_count:
             for i, sess in enumerate(self.slot_sessions):
-                if turns_done >= self.target_turn_count or end_scene:
+                if turns_done >= self.target_turn_count:
                     break
                 ch = scene.characters[i]
                 speaker_key = f"character {ch.slot}"
-                base_user = (
-                    f"Transcript so far:\n"
-                    + "\n".join(transcript_parts)
-                    + f"\n\nYour turn, **{ch.name}**. "
-                    "Deliver the next beat (one or two sentences). "
-                    "Stay in character; yes-and your partner. "
-                    "Optional bracketed sound cues like [door creak] are allowed.\n"
-                )
-                line = ""
-                judgement = TurnJudgement(
-                    coherence=1,
-                    yes_and=1,
-                    character_consistency=1,
-                    pass_turn=False,
-                    end_scene=False,
-                    feedback="",
-                )
-                for attempt in range(self.max_regen_per_turn + 1):
-                    extra = ""
-                    if attempt > 0 and judgement.feedback:
-                        extra = (
-                            f"\nDirector note (fix and continue): {judgement.feedback}\n"
-                        )
-                    line = sess.chat(base_user + extra).strip()
-                    judgement = self._judge_turn(
-                        scene,
-                        "\n".join(transcript_parts),
-                        ch.slot,
-                        ch.name,
-                        line,
-                    )
-                    self.audit_log.append(
-                        {
-                            "phase": "turn",
-                            "turn_index": turns_done,
-                            "slot": ch.slot,
-                            "character": ch.name,
-                            "line": line,
-                            "attempt": attempt,
-                            "judgement": judgement.model_dump(),
-                        }
-                    )
-                    if self._scores_meet_threshold(judgement):
-                        break
-                    if attempt < self.max_regen_per_turn:
-                        for _ in range(2):
-                            sess.delete_last_message()
-                if not self._scores_meet_threshold(judgement):
-                    logger.warning(
-                        "Turn judge never passed for slot %s after %s attempts; keeping last line.",
-                        ch.slot,
-                        self.max_regen_per_turn + 1,
-                    )
+                prompt = self._turn_prompt(scene, ch.name, transcript_parts)
 
-                clean = _strip_bracket_cues(line) or line
+                raw = sess.run_structured(prompt, ImprovTurn)
+                turn = ImprovTurn.model_validate(raw)
+                dialog = _clean_dialog(turn.dialog, ch.name)
+
                 segments.append(
                     {
                         "speaker": speaker_key,
-                        "dialog": clean,
+                        "dialog": dialog,
                         "character_name": ch.name,
                     }
                 )
-                transcript_parts.append(f"{ch.name}: {line}")
+                transcript_parts.append(f"{ch.name}: {dialog}")
 
-                cues = _extract_bracket_cues(line)
-                ctx = "\n".join(transcript_parts[-4:])
-                for cue in cues:
-                    query = cue[:120]
-                    sounds = self._collect_freesound_candidates(query)
-                    idx, sfx_reason = self._judge_pick_sfx(cue, ctx, sounds)
-                    fs_id = None
-                    if idx is not None and sounds:
-                        raw_id = getattr(sounds[idx], "id", None)
-                        if raw_id is not None:
-                            try:
-                                fs_id = int(raw_id)
-                            except (TypeError, ValueError):
-                                fs_id = None
-                    segments.append(
-                        {
-                            "speaker": "sound effect",
-                            "dialog": query,
-                            "character_name": None,
-                            "sfx_search_query": query,
-                            "sfx_freesound_id": fs_id,
-                        }
-                    )
-                    self.audit_log.append(
-                        {
-                            "phase": "sfx",
-                            "cue": cue,
-                            "query": query,
-                            "chosen_index": idx,
-                            "judge_reason": sfx_reason,
-                            "freesound_id": fs_id,
-                        }
-                    )
+                segments.extend(self._sfx_segments_for_turn(turn, turns_done))
 
+                self.audit_log.append(
+                    {
+                        "phase": "turn",
+                        "turn_index": turns_done,
+                        "slot": ch.slot,
+                        "character": ch.name,
+                        "dialog": dialog,
+                        "stage_direction": turn.stage_direction,
+                        "sfx_cues": list(turn.sfx_cues),
+                    }
+                )
                 turns_done += 1
-                if judgement.end_scene:
-                    end_scene = True
-                    break
 
         script = "\n".join(transcript_parts)
         return segments, script
@@ -368,8 +307,7 @@ class ImprovAgent:
                 "audit_log": self.audit_log,
                 "params_snapshot": {
                     "target_turn_count": self.target_turn_count,
-                    "judge_pass_threshold": self.judge_pass_threshold,
-                    "sfx_candidates": self.sfx_candidates,
+                    "num_characters": len(scene.characters),
                 },
             }
             with open(path, "w", encoding="utf-8") as f:
@@ -395,7 +333,7 @@ class ImprovAgent:
             "scene_setup": self.scene.model_dump(),
             "transcript": script,
             "turn_audit_log": self.audit_log,
-            "chat_app": self.judge_session,
+            "chat_app": self.setup_session,
         }
         if debug_path:
             out["improv_debug_path"] = debug_path

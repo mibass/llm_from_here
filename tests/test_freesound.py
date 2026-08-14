@@ -23,7 +23,11 @@ class TestFreeSound(unittest.TestCase):
 
         # Test the method
         self.free_sound.search_and_download_top_samples('query', num_samples=1)
-        self.assertEqual(self.free_sound.get_temp_file_names(), ['./mock_sound.wav'])
+        self.assertEqual(self.free_sound.get_temp_file_names(), ['./mock_sound.mp3'])
+        # retrieve_preview must receive a bare filename (no directory) to avoid
+        # doubling out_dir into the download path.
+        _, kwargs = mock_sound.retrieve_preview.call_args
+        self.assertEqual(kwargs.get("name"), "mock_sound.mp3")
 
     @patch.object(FreeSoundFetch, 'search_samples')
     def test_execute(self, mock_search_samples):
@@ -36,7 +40,7 @@ class TestFreeSound(unittest.TestCase):
         # Test the method
 
         result = self.free_sound.execute()
-        self.assertEqual(result, {'temp_files': ['./mock_sound.wav']})
+        self.assertEqual(result, {'temp_files': ['./mock_sound.mp3']})
 
 
 if __name__ == '__main__':
