@@ -46,7 +46,10 @@ class PromptToSegment:
                     f"chat_app_variable {chat_app_variable!r} not found in global results."
                 )
         else:
-            self.chat_app = ChatApp(params.get("system_message", ""))
+            self.chat_app = ChatApp(
+                params.get("system_message", ""),
+                model_slug=(params.get("model") or "").strip() or None,
+            )
         self.params = params
         self.global_params = global_params
         self.plugin_instance_name = plugin_instance_name
@@ -126,61 +129,71 @@ class PromptToSegment:
         Convert script to segments.
         Take audio cues from the script and convert them to "audio" speaker segments.
         Take Background sound cue and convert them to "background" segments.
+
+        Handles three script shapes:
+        - ``Name: dialog`` inline lines (original format)
+        - ``Name`` on its own line followed by dialog line(s) (bare-name format)
+        - bracketed cues: ``[BACKGROUND ...]`` for the ambient bed and
+          ``[CRINKLE PAPER]``-style cues for one-shot SFX (standalone or inline)
         """
         self.segments = []
         char_line_pattern = r'^([A-Za-z0-9\s]+):\s*(.*)$'
-        
+        name_line_pattern = r'^([A-Za-z][A-Za-z0-9]{0,40})$'
+
+        pending_character = None
+
         for line in self.script.splitlines():
-            if line.strip() == "":
+            stripped = line.strip()
+            if stripped == "":
                 continue
-            if re.match(r'\[BACKGROUND MUSIC:\s*', line, flags=re.IGNORECASE):
+            if re.match(r'\[BACKGROUND\b', stripped, flags=re.IGNORECASE):
                 result = re.sub(
-                    r'\[BACKGROUND MUSIC:\s*', '', line, flags=re.IGNORECASE
+                    r'\[BACKGROUND(?:\s*MUSIC)?\s*:?\s*',
+                    '',
+                    stripped,
+                    flags=re.IGNORECASE,
                 )
                 result = re.sub(r'\]', '', result)
-                segment = {
+                result = result.replace('_', ' ')
+                self.segments.append({
                     'speaker': 'background',
                     'dialog': result.strip(),
-                }
-                self.segments.append(segment)
-            elif re.match(r'\[background:\s*', line, flags=re.IGNORECASE):
-                result = re.sub(r'\[background:\s*', '', line, flags=re.IGNORECASE)
-                result = re.sub(r'\]', '', result)
-                segment = {
-                    'speaker': 'background',
-                    'dialog': result.strip()
-                }
-                self.segments.append(segment)
-            elif re.match(r'\[APPLAUSE', line, re.IGNORECASE):
+                })
+                pending_character = None
+            elif re.match(r'\[APPLAUSE', stripped, re.IGNORECASE):
                 self.segments.append({
                     'speaker': 'audience',
-                    'dialog': line.strip(),
+                    'dialog': stripped,
                 })
-            elif start:= self.get_sound_effect(line):
-                segment = {
-                    'speaker': 'sound effect',
-                    'dialog': start
-                }
-                self.segments.append(segment)
-            elif match := re.match(char_line_pattern, line, flags=re.IGNORECASE):
-                character_name = match.group(1)
-                dialog = match.group(2)
+            elif stripped.startswith('['):
+                cue = self._clean_sfx_cue(stripped[1:-1])
+                if cue:
+                    self.segments.append({
+                        'speaker': 'sound effect',
+                        'dialog': cue,
+                    })
+            elif match := re.match(name_line_pattern, stripped):
+                if self.filter_character_name(stripped):
+                    logger.info(f"Filtering character name: {stripped}")
+                    pending_character = None
+                else:
+                    pending_character = stripped
+            elif match := re.match(char_line_pattern, stripped, flags=re.IGNORECASE):
+                character_name = match.group(1).strip()
+                dialog = match.group(2).strip()
                 if self.filter_character_name(character_name):
                     logger.info(f"Filtering character name: {character_name}")
-                    continue
-                segment = {
-                    'speaker': 'character ' + str(self.get_character_number(character_name)),
-                    'dialog': dialog,
-                    'character_name': character_name,
-                }
-                self.segments.append(segment)
+                else:
+                    self._append_character_segment(character_name, dialog)
+                pending_character = None
+            elif pending_character is not None:
+                self._append_character_segment(pending_character, stripped)
             elif self.is_dialog:
-                segment = {
+                self.segments.append({
                     'speaker': 'character ' + str(self.get_character_number('narrator')),
-                    'dialog': line,
+                    'dialog': stripped,
                     'character_name': 'narrator',
-                }
-                self.segments.append(segment)
+                })
             else:
                 logger.warning(f"Ignoring line; Could not parse line: {line}")
 
@@ -188,6 +201,60 @@ class PromptToSegment:
             self.segments = [segment for segment in self.segments if segment['dialog'].strip() != ""]
 
         self._normalize_segments()
+
+    def _clean_sfx_cue(self, cue: str) -> str:
+        """Normalize a bracketed cue into a short, searchable sound name."""
+        s = (cue or "").strip()
+        s = re.sub(
+            r'^\s*(?:SOUND\s*EFFECT|SFX|SOUND)\s*:\s*',
+            '',
+            s,
+            flags=re.IGNORECASE,
+        )
+        s = re.sub(
+            r'^\s*(?:the\s+)?sound(?: effect)?\s+of\s+',
+            '',
+            s,
+            flags=re.IGNORECASE,
+        )
+        s = s.replace('_', ' ')
+        s = re.sub(r'\s+', ' ', s).strip(' .,!?;:\'"')
+        return s
+
+    def _split_inline_cues(self, text: str) -> tuple[str, list[str]]:
+        """Split bracketed SFX cues out of dialog text.
+
+        Returns ``(cleaned_dialog, cue_list)``; bracketed content is removed from
+        the spoken dialog and returned as cleaned sound names.
+        """
+        cues: list[str] = []
+        parts: list[str] = []
+        for token in re.split(r'(\[[^\]]+\])', text):
+            token = token.strip()
+            if not token:
+                continue
+            if token.startswith('['):
+                cue = self._clean_sfx_cue(token[1:-1])
+                if cue:
+                    cues.append(cue)
+            else:
+                parts.append(token)
+        return ' '.join(parts).strip(), cues
+
+    def _append_character_segment(self, character_name: str, dialog: str) -> None:
+        """Emit a character segment (with inline SFX split out) for one dialog line."""
+        dialog, cues = self._split_inline_cues(dialog)
+        if dialog:
+            self.segments.append({
+                'speaker': 'character ' + str(self.get_character_number(character_name)),
+                'dialog': dialog,
+                'character_name': character_name,
+            })
+        for cue in cues:
+            self.segments.append({
+                'speaker': 'sound effect',
+                'dialog': cue,
+            })
 
     def _normalize_segments(self) -> None:
         """Drop markdown titles and put background cues first for single_background timelines."""

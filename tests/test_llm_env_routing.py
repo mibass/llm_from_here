@@ -39,3 +39,16 @@ def test_check_ollama_available_returns_false_on_error():
     with patch("urllib.request.urlopen") as mock_urlopen:
         mock_urlopen.side_effect = urllib.error.URLError("refused")
         assert le.check_ollama_available() is False
+
+
+def test_deepseek_via_openrouter_defaults_to_tool_structured_output():
+    # deepseek does not support pydantic-ai native structured output over OpenRouter.
+    assert (
+        le.get_structured_output_mode(
+            "openrouter:deepseek/deepseek-v4-flash"
+        )
+        == "tool"
+    )
+    assert (
+        le.get_structured_output_mode("google/gemini-2.5-flash") == "native"
+    )

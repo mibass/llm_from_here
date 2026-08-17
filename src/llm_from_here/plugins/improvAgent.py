@@ -23,12 +23,38 @@ from llm_from_here.schemas.improv_outputs import ImprovTurn, SceneSetup
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = "openrouter:openai/gpt-4o-mini"
+_DEFAULT_MODEL = "openrouter:deepseek/deepseek-v4-flash"
 
 _ANY_BRACKET_RE = re.compile(r"\[([^\]]+)\]")
 # Only explicit sound cues become SFX; arbitrary stage directions like
 # ``[Alice leans closer]`` are not treated as Freesound queries.
 _SFX_CUE_RE = re.compile(r"\[(?:SFX|SOUND)\s*:\s*([^\]]+)\]", re.IGNORECASE)
+
+# Rotating "this beat, play this move" menus injected per turn to break the
+# recurrent groove where the escalator only scales up and the straight man
+# only prices things out. Indexed by global turn count.
+_ESCALATOR_MOVES: list[str] = [
+    "raise the stakes in scale or scope",
+    "reinterpret your partner's objection into evidence for your cause",
+    "surface a brand-new absurd domain tied to your obsession",
+    "invert the frame: make your partner's objection your new goal",
+    "reveal a hidden motive or backstory that justifies the obsession",
+    "deflate yourself for one beat, then recommit harder",
+]
+_STRAIGHT_MAN_MOVES: list[str] = [
+    "escalate the practical consequences of the obsession",
+    "escalate procedure, policy, or authority that blocks it",
+    "state the personal stake it costs you (time, people, sanity)",
+    "reveal your own hidden motive for being the skeptic",
+    "take your partner seriously for a beat and be momentarily charmed",
+    "pay one genuine human beat before re-grounding the Game",
+]
+
+
+def _rotating_moves(turn_index: int) -> tuple[str, str]:
+    """Return (escalator move, straight-man move) for the given global turn index."""
+    n = len(_ESCALATOR_MOVES)
+    return _ESCALATOR_MOVES[turn_index % n], _STRAIGHT_MAN_MOVES[turn_index % n]
 
 
 def _strip_bracket_cues(text: str) -> str:
@@ -159,6 +185,14 @@ class ImprovAgent:
             f"{self.setup_system_message}\n\n"
             f"You must define exactly {n} characters with slots 1..{n} in order. "
             "Each needs a distinct playable name and a one-sentence want or obstacle.\n"
+            "Design one playable Game: a single unusual thing (an obsession, a wrong belief, "
+            "a recurring behavior) that both performers can identify, commit to, and heighten. "
+            "Make it concrete and grounded in the setting, not abstract. Give the Game multiple "
+            "escalation vectors so the performers can heighten in kind (elaborating logic, "
+            "reinterpreting reality, inverting authority, compounding commitment), not only "
+            "in scale. Make the conflict axis NON-financial: the straight man's friction must "
+            "come from a code (procedure, duty, policy, physical law, personal stake), not "
+            "primarily cost or feasibility.\n"
             "Also provide: setting, scenario (inciting incident), background_sound "
             "(short Freesound-style ambient query), and sfx_palette (3–5 short searchable SFX labels).\n"
             f"{inj}\n"
@@ -192,22 +226,32 @@ class ImprovAgent:
                 "Acknowledge in one short in-character line (this primes your voice)."
             )
 
-    def _turn_prompt(self, scene: SceneSetup, ch_name: str, transcript_parts: list[str]) -> str:
+    def _turn_prompt(
+        self, scene: SceneSetup, ch_name: str, transcript_parts: list[str], turn_index: int
+    ) -> str:
         palette = ", ".join(scene.sfx_palette) if scene.sfx_palette else ""
         palette_hint = (
             f"Prefer sounds from this palette when apt: {palette}. " if palette else ""
         )
+        esc_move, sm_move = _rotating_moves(turn_index)
         return (
             "Transcript so far:\n"
             + "\n".join(transcript_parts)
             + f"\n\nYour turn, {ch_name}. Deliver the next beat as ONE structured turn:\n"
             "- dialog: one or two sentences of spoken words only. Do NOT prefix your name. "
-            "Do NOT include stage directions or bracketed cues in dialog.\n"
+            "Do NOT include stage directions or bracketed cues in dialog. "
+            "End on the punchline; no 'you know'/'right?'/'exactly' padding, no compliment "
+            "chains, no trailing tag-ons that restate the joke. If the setup is already paid "
+            "off, subvert the predictable. Be specific: name the object, the brand, the number.\n"
             "- stage_direction: optional short acting note (not spoken).\n"
-            "- sfx_cues: zero to two concrete, audible sound-effect search queries. "
+            "- sfx_cues: at most ONE concrete, audible sound-effect search query, and only "
+            "add a second if a sound is genuinely integral to the beat. "
             f"{palette_hint}"
             "Use real sounds (e.g. 'coffee machine steam', 'doorbell chime', 'chair scrape'), "
             "not emotions or gestures. Leave empty if no sound is warranted.\n"
+            "\nThis beat, play exactly ONE move. If you are the ESCALATOR: "
+            f"{esc_move}. If you are the STRAIGHT MAN: {sm_move}. "
+            "Break ties toward surprise.\n"
         )
 
     def _sfx_segments_for_turn(
@@ -264,7 +308,7 @@ class ImprovAgent:
                     break
                 ch = scene.characters[i]
                 speaker_key = f"character {ch.slot}"
-                prompt = self._turn_prompt(scene, ch.name, transcript_parts)
+                prompt = self._turn_prompt(scene, ch.name, transcript_parts, turns_done)
 
                 raw = sess.run_structured(prompt, ImprovTurn)
                 turn = ImprovTurn.model_validate(raw)

@@ -10,8 +10,11 @@ from unittest.mock import MagicMock, patch
 from llm_from_here.plugins.improvAgent import (
     ImprovAgent,
     _clean_dialog,
+    _ESCALATOR_MOVES,
     _extract_bracket_cues,
     _normalize_sfx_query,
+    _rotating_moves,
+    _STRAIGHT_MAN_MOVES,
     _strip_bracket_cues,
 )
 from llm_from_here.plugins.segmentsToTimeline import SegmentsToTimeline
@@ -42,6 +45,42 @@ class TestBracketHelpers(unittest.TestCase):
         self.assertEqual(_clean_dialog("Alice: Alice: Hello there", "Alice"), "Hello there")
         self.assertEqual(_clean_dialog('"Just a line"', "Bob"), "Just a line")
         self.assertEqual(_clean_dialog("[waves] Hi", "Bob"), "Hi")
+
+
+class TestRotatingMoves(unittest.TestCase):
+    def test_rotation_cycles_by_turn_index(self) -> None:
+        esc0, sm0 = _rotating_moves(0)
+        self.assertEqual(esc0, _ESCALATOR_MOVES[0])
+        self.assertEqual(sm0, _STRAIGHT_MAN_MOVES[0])
+        # Wraps around at the menu length so every move recurs.
+        n = len(_ESCALATOR_MOVES)
+        self.assertEqual(_rotating_moves(n)[0], _ESCALATOR_MOVES[0])
+        self.assertEqual(_rotating_moves(n)[1], _STRAIGHT_MAN_MOVES[0])
+        # Different index -> different move (menus have no duplicates).
+        self.assertEqual(len(set(_ESCALATOR_MOVES)), n)
+        self.assertEqual(len(set(_STRAIGHT_MAN_MOVES)), n)
+
+    def test_turn_prompt_injects_rotating_move_and_sfx_cap(self) -> None:
+        with patch("llm_from_here.plugins.improvAgent.LlmSession") as mock_llm, patch(
+            "llm_from_here.plugins.improvAgent.FreeSoundFetch"
+        ) as mock_fs, tempfile.TemporaryDirectory() as tmp:
+            mock_llm.return_value = MagicMock()
+            mock_fs.return_value = MagicMock()
+            params = {
+                "setup_model": "openrouter:deepseek/deepseek-v4-flash",
+                "character_slots": [
+                    {"model": "openrouter:deepseek/deepseek-v4-flash"},
+                    {"model": "openrouter:deepseek/deepseek-v4-flash"},
+                ],
+            }
+            agent = ImprovAgent(params, {"output_folder": tmp}, "improv")
+            esc_move, sm_move = _rotating_moves(1)
+            prompt = agent._turn_prompt(_make_scene(), "A", ["A: hi"], turn_index=1)
+
+            self.assertIn("exactly ONE move", prompt)
+            self.assertIn(esc_move, prompt)
+            self.assertIn(sm_move, prompt)
+            self.assertIn("at most ONE concrete", prompt)
 
 
 def _make_scene() -> SceneSetup:

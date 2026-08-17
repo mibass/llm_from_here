@@ -43,7 +43,7 @@ def main() -> int:
     ap.add_argument("debug_json", type=Path, help="Path to improv_debug.json")
     ap.add_argument(
         "--judge-model",
-        default=os.getenv("IMPROV_EVAL_JUDGE_MODEL", "openai/gpt-4o-mini"),
+        default=os.getenv("IMPROV_EVAL_JUDGE_MODEL", "deepseek/deepseek-v4-flash"),
         help="OpenRouter model slug for the judge",
     )
     ap.add_argument(
@@ -62,9 +62,12 @@ def main() -> int:
     segments = json.dumps(payload.get("segments") or [], indent=2, default=str)
     setup = json.dumps(payload.get("scene_setup") or {}, indent=2, default=str)
 
+    judge_slug = args.judge_model.strip()
+    if judge_slug and not judge_slug.startswith("openrouter:"):
+        judge_slug = f"openrouter:{judge_slug}"
     judge = LlmSession(
         "You score full improv scenes for audio variety shows. Be fair and concise.",
-        model_slug=args.judge_model.strip(),
+        model_slug=judge_slug,
     )
     prompt = (
         "Score this completed improv scene (1=weak, 4=strong).\n"

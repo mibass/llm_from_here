@@ -186,7 +186,7 @@ class LlmSession:
         log_prompt: bool = False,
         structured_mode: StructuredOutputMode | None = None,
     ) -> Any:
-        mode = structured_mode or get_structured_output_mode()
+        mode = structured_mode or get_structured_output_mode(self.model_slug)
         if log_prompt:
             logger.info("run_structured mode=%s prompt=%s", mode, prompt)
 
