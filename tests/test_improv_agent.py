@@ -130,7 +130,7 @@ class TestImprovAgentBuildMap(unittest.TestCase):
                 "google/gemini-3.1-flash-tts-preview",
             )
             self.assertEqual(
-                smap["sound effect"]["segment_type"], "music_generator_freesound"
+                smap["sound effect"]["segment_type"], "music_generator_foley_agent"
             )
 
     def test_generation_loop_uses_structured_turns_without_judging(

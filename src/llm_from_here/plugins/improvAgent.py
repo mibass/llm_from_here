@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "openrouter:deepseek/deepseek-v4-flash"
 
+# Hard upper bound on SFX cues honored per turn. The turn prompt asks for at
+# most one (a second only when integral); this guarantees the bound even when
+# the model disobeys, so a turn can never flood the timeline with foley.
+_MAX_SFX_CUES_PER_TURN = 2
+
 _ANY_BRACKET_RE = re.compile(r"\[([^\]]+)\]")
 # Only explicit sound cues become SFX; arbitrary stage directions like
 # ``[Alice leans closer]`` are not treated as Freesound queries.
@@ -93,7 +98,7 @@ def _clean_dialog(dialog: str, name: str) -> str:
 
 _DEFAULT_SFX_MAP: dict[str, Any] = {
     "sound effect": {
-        "segment_type": "music_generator_freesound",
+        "segment_type": "music_generator_foley_agent",
         "arguments": {
             "duration_min_sec": 1,
             "duration_max_sec": 60,
@@ -262,6 +267,19 @@ class ImprovAgent:
         cues += _extract_bracket_cues(turn.stage_direction)
         cues += _extract_bracket_cues(turn.dialog)
 
+        truncated = False
+        if len(cues) > _MAX_SFX_CUES_PER_TURN:
+            dropped = cues[_MAX_SFX_CUES_PER_TURN:]
+            cues = cues[:_MAX_SFX_CUES_PER_TURN]
+            truncated = True
+            logger.warning(
+                "Turn %d requested %d SFX cues (cap %d); dropping %s",
+                turn_index,
+                len(cues) + len(dropped),
+                _MAX_SFX_CUES_PER_TURN,
+                dropped,
+            )
+
         segments: list[dict[str, Any]] = []
         seen: set[str] = set()
         for cue in cues:
@@ -284,6 +302,7 @@ class ImprovAgent:
                     "turn_index": turn_index,
                     "cue": cue,
                     "query": query,
+                    "truncated": truncated and cue == cues[-1],
                 }
             )
         return segments

@@ -153,7 +153,7 @@ plugins:
         character 2:
           segment_type: fast_TTS
         sound effect:
-          segment_type: music_generator_freesound
+          segment_type: music_generator_foley_agent
           arguments:
             duration_min_sec: 1
             duration_max_sec: 60

@@ -26,6 +26,16 @@ class ImprovSceneScores(BaseModel):
     scene_coherence: int = Field(..., ge=1, le=4)
     improv_principles: int = Field(..., ge=1, le=4)
     sfx_relevance: int = Field(..., ge=1, le=4)
+    sfx_match: int = Field(
+        ...,
+        ge=1,
+        le=4,
+        description=(
+            "How well the foley resolution matched intent: cued sounds actually "
+            "fetched, reasonably on-topic, and did not pull focus. If no foley_audit "
+            "is provided, score the match implied by the cues and ambience alone."
+        ),
+    )
     character_consistency: int = Field(..., ge=1, le=4)
     pass_scene: bool = Field(
         ...,
@@ -62,6 +72,16 @@ def main() -> int:
     segments = json.dumps(payload.get("segments") or [], indent=2, default=str)
     setup = json.dumps(payload.get("scene_setup") or {}, indent=2, default=str)
 
+    foley_path = args.debug_json.parent / "foley_audit.json"
+    foley_audit = []
+    if foley_path.is_file():
+        loaded = json.loads(foley_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, list):
+            foley_audit = loaded
+    foley_audit_text = (
+        json.dumps(foley_audit, indent=2, default=str) if foley_audit else "(none recorded)"
+    )
+
     judge_slug = args.judge_model.strip()
     if judge_slug and not judge_slug.startswith("openrouter:"):
         judge_slug = f"openrouter:{judge_slug}"
@@ -74,11 +94,14 @@ def main() -> int:
         "- scene_coherence: setting, scenario, and arc hang together\n"
         "- improv_principles: yes-and, listening, playable beats\n"
         "- sfx_relevance: bracket cues and ambient choice fit the fiction\n"
+        "- sfx_match: whether the foley_audit shows cued sounds matched intent and "
+        "were fetched (or, without an audit, whether the cues are fetchable and apt)\n"
         "- character_consistency: distinct voices and wants sustained\n"
         "pass_scene: true only if overall it would air on a quality improv podcast.\n\n"
         f"scene_setup:\n{setup}\n\n"
         f"transcript:\n{transcript}\n\n"
         f"segments:\n{segments}\n\n"
+        f"foley_audit:\n{foley_audit_text}\n\n"
         "Return structured ImprovSceneEval with scores and a short rationale."
     )
     raw = judge.run_structured(prompt, ImprovSceneEval, log_prompt=True)
@@ -94,6 +117,7 @@ def main() -> int:
         "generated_at": ts,
         "judge_model": f"openrouter:{args.judge_model}",
         "source_debug_json": str(args.debug_json.resolve()),
+        "foley_audit_entries": len(foley_audit),
         "scores": ev.scores.model_dump(),
         "pass": ev.scores.pass_scene,
         "rationale": ev.rationale,

@@ -1,4 +1,5 @@
 import llm_from_here.plugins.showTTS as showTTS
+import json
 import os
 import re
 import shutil
@@ -20,6 +21,7 @@ from pydub import AudioSegment
 
 from llm_from_here.plugins.applause import generate_applause
 import llm_from_here.plugins.freesoundfetch as freesoundfetch
+from llm_from_here.plugins.foleyAgent import FoleyAgent
 import llm_from_here.plugins.ytfetch as ytfetch
 import llm_from_here.plugins.audioTimeline as audioTimeline
 
@@ -145,6 +147,85 @@ class SegmentsToTimeline:
                 return True
         logger.warning("No freesound results for query %r; skipping segment.", query)
         return None
+
+    def _foley_cue_query(self, text: str, additional_query_text: str = "") -> str:
+        """Extract a bare SFX search query, stripping any bracket label."""
+        label_match = re.fullmatch(r"\s*\[[A-Za-z ]+:?\s*(.*?)\]\s*", text)
+        cue = label_match.group(1) if label_match else text
+        if additional_query_text:
+            cue = f"{cue} {additional_query_text}".strip()
+        return cue.strip()
+
+    def _foley_agent(self, cache_dir: str | None = None) -> FoleyAgent:
+        if getattr(self, "_foley_agent_obj", None) is None:
+            self._foley_agent_obj = FoleyAgent(cache_dir=cache_dir)
+        return self._foley_agent_obj
+
+    def _record_foley_audit(self, cue: str, result: dict) -> None:
+        out_folder = self.global_results.get("output_folder")
+        if not out_folder:
+            return
+        path = os.path.join(out_folder, "foley_audit.json")
+        try:
+            rows: list = []
+            if os.path.isfile(path):
+                with open(path, encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, list):
+                        rows = loaded
+            rows.append(
+                {
+                    "cue": cue,
+                    "status": result.get("status"),
+                    "reason": result.get("reason"),
+                    "selected": result.get("selected"),
+                    "attempts": result.get("audit", {}).get("attempts"),
+                }
+            )
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(rows, f, indent=2, default=str)
+        except OSError as e:
+            logger.error("Could not write foley_audit.json: %s", e)
+
+    def music_generator_foley_agent(
+        self,
+        text,
+        output_file,
+        duration_min_sec=1,
+        duration_max_sec=60,
+        additional_query_text="",
+        model=None,
+        cache_dir=None,
+    ):
+        """LLM-in-the-loop SFX fetch via FoleyAgent; silence pad preserves pacing on miss."""
+        cue = self._foley_cue_query(text, additional_query_text)
+        if not cue:
+            logger.warning("Empty foley cue; writing silence pad.")
+            self.silence_generator("duration 700", output_file)
+            return True
+        result = self._foley_agent(cache_dir).resolve(
+            intent=cue,
+            duration_min_sec=int(duration_min_sec),
+            duration_max_sec=int(duration_max_sec),
+            model_slug=model,
+            download_dir=os.path.dirname(output_file) or None,
+        )
+        self._record_foley_audit(cue, result)
+        status = result.get("status")
+        file_path = result.get("file")
+        if status in ("hit", "cached") and file_path and os.path.isfile(file_path):
+            shutil.copyfile(file_path, output_file)
+            logger.info(
+                "Foley %s for %r -> %s", status, cue, result.get("selected") or {}
+            )
+            return True
+        logger.warning(
+            "Foley miss for %r (%s); writing silence pad.",
+            cue,
+            result.get("reason", status),
+        )
+        self.silence_generator("duration 700", output_file)
+        return True
 
     def music_generator_openrouter(self, text, output_file, **kwargs):
         music_cue_profile = kwargs.pop("music_cue_profile", None)
