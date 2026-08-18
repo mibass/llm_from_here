@@ -4,6 +4,9 @@ import os
 import re
 import shutil
 import tempfile
+from pathlib import Path
+
+import appdirs
 
 from llm_from_here.gemini_tts import (
     LONGFORM_TTS_CHUNK_PAUSE_MS,
@@ -176,10 +179,12 @@ class SegmentsToTimeline:
             rows.append(
                 {
                     "cue": cue,
+                    "cue_type": result.get("cue_type", "sfx"),
                     "status": result.get("status"),
                     "reason": result.get("reason"),
                     "selected": result.get("selected"),
-                    "attempts": result.get("audit", {}).get("attempts"),
+                    # resolve() returns attempt rows at the top level of the result dict.
+                    "attempts": result.get("attempts"),
                 }
             )
             with open(path, "w", encoding="utf-8") as f:
@@ -196,6 +201,7 @@ class SegmentsToTimeline:
         additional_query_text="",
         model=None,
         cache_dir=None,
+        foley_max_duration_sec=None,
     ):
         """LLM-in-the-loop SFX fetch via FoleyAgent; silence pad preserves pacing on miss."""
         cue = self._foley_cue_query(text, additional_query_text)
@@ -215,6 +221,19 @@ class SegmentsToTimeline:
         file_path = result.get("file")
         if status in ("hit", "cached") and file_path and os.path.isfile(file_path):
             shutil.copyfile(file_path, output_file)
+            foley_max_duration_sec = int(foley_max_duration_sec or 0)
+            if foley_max_duration_sec > 0:
+                seg = AudioSegment.from_file(output_file)
+                cap_ms = foley_max_duration_sec * 1000
+                if len(seg) > cap_ms:
+                    fade_ms = min(200, len(seg))
+                    seg[:cap_ms].fade_out(fade_ms).export(output_file, format="wav")
+                    logger.info(
+                        "Truncated foley %r to %ds cap (was %.1fs).",
+                        cue,
+                        foley_max_duration_sec,
+                        len(seg) / 1000.0,
+                    )
             logger.info(
                 "Foley %s for %r -> %s", status, cue, result.get("selected") or {}
             )
@@ -226,6 +245,102 @@ class SegmentsToTimeline:
         )
         self.silence_generator("duration 700", output_file)
         return True
+
+    def _synthesize_ambience_bed(self, output_file: str, duration_sec: int = 45) -> bool:
+        """Deterministic fallback bed: soft brown-noise room tone with a low hum."""
+        import numpy as np
+
+        rate = 44100
+        n_samples = int(rate * duration_sec)
+        rng = np.random.default_rng(0)
+        white = rng.standard_normal(n_samples)
+        brown = np.cumsum(white * 0.02)
+        brown = brown - np.mean(brown)
+        peak = np.max(np.abs(brown)) or 1.0
+        brown = brown / peak * 0.28
+        t = np.arange(n_samples) / rate
+        hum = 0.035 * np.sin(2 * np.pi * 120 * t)
+        hum += 0.018 * np.sin(2 * np.pi * 180 * t)
+        mix = brown + hum
+        fade = int(rate * 2)
+        envelope = np.ones(n_samples)
+        envelope[:fade] = np.linspace(0.0, 1.0, fade)
+        envelope[-fade:] = np.linspace(1.0, 0.0, fade)
+        pcm = (mix * envelope * 32767).astype(np.int16)
+        seg = AudioSegment(
+            data=pcm.tobytes(), sample_width=2, frame_rate=rate, channels=1
+        )
+        seg.export(output_file, format="wav")
+        logger.info(
+            "Synthesized ambience bed fallback to %s (%.0fs)",
+            output_file,
+            duration_sec,
+        )
+        return True
+
+    def music_generator_foley_ambience(
+        self,
+        text,
+        output_file,
+        duration_min_sec=30,
+        duration_max_sec=200,
+        additional_query_text="",
+        model=None,
+        cache_dir=None,
+        ambience_fallback=True,
+    ):
+        """Sustained background/ambience bed via the FoleyAgent judge (cached).
+
+        On total miss, falls back to a synthesized soft room-tone bed so the
+        background is never silently dropped. ``ambience_fallback=False`` skips
+        the segment instead (returns None).
+        """
+        cue = self._foley_cue_query(text, additional_query_text)
+        if not cue:
+            logger.warning("Empty ambience cue; skipping background segment.")
+            return None
+        if cache_dir:
+            amb_root = Path(cache_dir) / "ambience"
+        else:
+            amb_root = (
+                Path(appdirs.user_cache_dir(appname="llm_from_here"))
+                / "foley"
+                / "ambience"
+            )
+        agent = FoleyAgent(cache_dir=amb_root)
+        result = agent.resolve(
+            intent=cue,
+            duration_min_sec=int(duration_min_sec),
+            duration_max_sec=int(duration_max_sec),
+            model_slug=model,
+            download_dir=os.path.dirname(output_file) or None,
+            sustained=True,
+        )
+        self._record_foley_audit(cue, {**result, "cue_type": "ambience"})
+        status = result.get("status")
+        file_path = result.get("file")
+        if status in ("hit", "cached") and file_path and os.path.isfile(file_path):
+            shutil.copyfile(file_path, output_file)
+            logger.info(
+                "Ambience %s for %r -> %s", status, cue, result.get("selected") or {}
+            )
+            return True
+        reason = result.get("reason", status)
+        if ambience_fallback:
+            self._record_foley_audit(
+                cue,
+                {
+                    "status": "synthesized",
+                    "cue_type": "ambience",
+                    "reason": f"freesound miss ({reason}); synthesized fallback bed",
+                    "selected": None,
+                },
+            )
+            return self._synthesize_ambience_bed(output_file)
+        logger.warning(
+            "Ambience miss for %r (%s); skipping background segment.", cue, reason
+        )
+        return None
 
     def music_generator_openrouter(self, text, output_file, **kwargs):
         music_cue_profile = kwargs.pop("music_cue_profile", None)

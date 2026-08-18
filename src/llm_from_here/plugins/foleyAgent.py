@@ -42,6 +42,10 @@ _DEFAULT_MAX_ATTEMPTS = 3
 _DEFAULT_NUM_CANDIDATES = 5
 _SEARCH_TIMEOUT_S = 15
 _DOWNLOAD_TIMEOUT_S = 60
+# Bump to invalidate previously chosen sounds when the judge behavior changes
+# (e.g. importing short-clip/sustained duration guidance).
+_CACHE_VERSION = "2"
+_MAX_IMPACT_CLIP_SEC = 8
 
 _SQUASH_RE = re.compile(r"\s+")
 
@@ -129,9 +133,43 @@ class FreesoundProvider:
         duration_max_sec: int,
         num_results: int = _DEFAULT_NUM_CANDIDATES,
     ) -> list[FoleyCandidate]:
+        """Text search. Freesound's keyword search returns nothing for long
+        object+action phrases, so when a query has no hits we retry with trailing
+        tokens trimmed off until results appear or a single token remains."""
         if not normalize_cue(query):
             raise FoleyProviderError("Empty search query")
-        payload = self._get(
+        tried: list[str] = []
+        candidate_query = normalize_cue(query)
+        while True:
+            tried.append(candidate_query)
+            payload = self._search_once(
+                candidate_query, duration_min_sec, duration_max_sec, num_results
+            )
+            out = self._candidates_from(payload)
+            if out:
+                if len(tried) > 1:
+                    logger.info(
+                        "Freesound trimmed query %r -> %r (%s results)",
+                        query,
+                        candidate_query,
+                        len(out),
+                    )
+                return out
+            tokens = candidate_query.split()
+            if len(tokens) <= 1:
+                break
+            candidate_query = " ".join(tokens[:-1])
+        logger.info("Freesound search for %r returned no results (tried %s)", query, tried)
+        return []
+
+    def _search_once(
+        self,
+        query: str,
+        duration_min_sec: int,
+        duration_max_sec: int,
+        num_results: int,
+    ) -> dict[str, Any]:
+        return self._get(
             "https://freesound.org/apiv2/search/text/",
             {
                 "query": query,
@@ -141,6 +179,8 @@ class FreesoundProvider:
                 "sort": "rating_desc",
             },
         )
+
+    def _candidates_from(self, payload: dict[str, Any]) -> list[FoleyCandidate]:
         out: list[FoleyCandidate] = []
         for item in payload.get("results") or []:
             previews = item.get("previews") or {}
@@ -203,7 +243,8 @@ class FoleyCache:
 
     @staticmethod
     def _key(intent: str) -> str:
-        digest = hashlib.sha256(normalize_cue(intent).lower().encode("utf-8")).hexdigest()[:16]
+        payload = f"{normalize_cue(intent).lower()}|v{_CACHE_VERSION}"
+        digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
         return f"{digest}"
 
     def get(self, intent: str) -> dict[str, Any] | None:
@@ -287,6 +328,11 @@ class FoleyAgent:
     def _provider_by_name(self) -> dict[str, SoundProvider]:
         return {p.name: p for p in self.providers}
 
+    @staticmethod
+    def _mechanical_give_up(reason: str) -> bool:
+        """True when the judge didn't meaningfully reject the candidates."""
+        return "no accept/refine" in reason or "repeated or empty refined query" in reason
+
     def _search_once(
         self,
         query: str,
@@ -317,8 +363,12 @@ class FoleyAgent:
         duration_max_sec: int = 60,
         model_slug: str | None = None,
         download_dir: Path | str | None = None,
+        sustained: bool = False,
     ) -> dict[str, Any]:
         """Resolve an SFX intent to a downloaded audio file (or a miss).
+
+        ``sustained=True`` frames the cue as a background/ambience bed and biases
+        the judge toward full-length clips (as opposed to short impact sounds).
 
         Returns ``{"status": "hit"|"cached"|"miss", "file": Path|None,
         "audit": {...}}``. Files land in ``download_dir`` (or the cache root).
@@ -343,6 +393,7 @@ class FoleyAgent:
                 "name": cached.get("source_name"),
             }
             audit["attempts"].append({"query": initial, "decision": "cached"})
+            audit["file"] = cached.get("path")
             return audit
 
         dest_dir = Path(download_dir) if download_dir else self.cache.root
@@ -351,8 +402,17 @@ class FoleyAgent:
 
         query = initial
         seen_queries = {initial.lower()}
+        last_candidates: list[FoleyCandidate] = []
         for attempt in range(1, self.max_attempts + 1):
             candidates, errors = self._search_once(query, duration_min_sec, duration_max_sec)
+            last_candidates = candidates
+            if not candidates:
+                logger.info(
+                    "Foley search for %r returned no candidates (attempt %s/%s)",
+                    query,
+                    attempt,
+                    self.max_attempts,
+                )
             attempt_row: dict[str, Any] = {
                 "attempt": attempt,
                 "query": query,
@@ -373,7 +433,7 @@ class FoleyAgent:
 
             if not candidates:
                 step = self._decide(
-                    initial, query, [], errors, attempt, intent
+                    initial, query, [], errors, attempt, intent, sustained=sustained
                 )
                 outcome, detail = self._apply_step(step, [], query, seen_queries)
             elif self._free_mode:
@@ -381,37 +441,21 @@ class FoleyAgent:
                 outcome, detail = "accept", candidates[0]
             else:
                 step = self._decide(
-                    initial, query, candidates, errors, attempt, intent
+                    initial,
+                    query,
+                    candidates,
+                    errors,
+                    attempt,
+                    intent,
+                    sustained=sustained,
                 )
                 outcome, detail = self._apply_step(step, candidates, query, seen_queries)
 
             if outcome == "accept":
-                cand = detail
-                try:
-                    path = providers[cand.provider].download(cand, dest_dir)
-                except Exception as e:  # noqa: BLE001 - download failure -> miss
-                    logger.warning("Foley download failed for %s: %s", cand.ref, e)
-                    audit["attempts"] = [
-                        {**row, "decision": row.get("decision") or "download failed"}
-                        for row in audit["attempts"]
-                    ]
-                    return self._finalize_miss(audit, f"download failed for {cand.ref}")
-                self.cache.put(initial, cand.provider, cand, path)
-                audit["status"] = "hit"
-                audit["selected"] = {
-                    "provider": cand.provider,
-                    "id": cand.candidate_id,
-                    "name": cand.name,
-                }
-                attempt_row["decision"] = f"accept {cand.ref}"
-                logger.info(
-                    "Foley %r -> %s (%s, %.1fs)",
-                    initial,
-                    cand.name,
-                    cand.ref,
-                    cand.duration_sec or 0,
+                res = self._accept_and_download(
+                    audit, attempt_row, providers, dest_dir, detail, initial
                 )
-                return {**audit, "file": str(path)}
+                return res
 
             if outcome == "retry":
                 query = detail
@@ -420,10 +464,87 @@ class FoleyAgent:
                 continue
 
             attempt_row["decision"] = f"give_up: {detail}"
+            if candidates and self._mechanical_give_up(detail):
+                return self._best_effort_accept(
+                    audit, attempt_row, providers, dest_dir, candidates[0], initial
+                )
             return self._finalize_miss(audit, detail)
 
         last_decision = audit["attempts"][-1].get("decision") or "max attempts"
+        if last_candidates:
+            return self._best_effort_accept(
+                audit,
+                audit["attempts"][-1],
+                providers,
+                dest_dir,
+                last_candidates[0],
+                initial,
+            )
         return self._finalize_miss(audit, last_decision)
+
+    def _accept_and_download(
+        self,
+        audit: dict[str, Any],
+        attempt_row: dict[str, Any],
+        providers: dict[str, SoundProvider],
+        dest_dir: Path,
+        cand: FoleyCandidate,
+        intent: str,
+    ) -> dict[str, Any]:
+        """Download, cache, and record an accepted candidate as a hit. On download
+        failure marks the miss reason and returns a miss dict."""
+        try:
+            path = providers[cand.provider].download(cand, dest_dir)
+        except Exception as e:  # noqa: BLE001 - download failure -> miss
+            logger.warning("Foley download failed for %s: %s", cand.ref, e)
+            audit["attempts"] = [
+                {**row, "decision": row.get("decision") or "download failed"}
+                for row in audit["attempts"]
+            ]
+            return self._finalize_miss(audit, f"download failed for {cand.ref}")
+        self.cache.put(intent, cand.provider, cand, path)
+        audit["status"] = "hit"
+        audit["selected"] = {
+            "provider": cand.provider,
+            "id": cand.candidate_id,
+            "name": cand.name,
+        }
+        attempt_row["decision"] = f"accept {cand.ref}"
+        logger.info(
+            "Foley %r -> %s (%s, %.1fs)",
+            intent,
+            cand.name,
+            cand.ref,
+            cand.duration_sec or 0,
+        )
+        return {**audit, "file": str(path)}
+
+    def _best_effort_accept(
+        self,
+        audit: dict[str, Any],
+        attempt_row: dict[str, Any],
+        providers: dict[str, SoundProvider],
+        dest_dir: Path,
+        cand: FoleyCandidate,
+        intent: str,
+    ) -> dict[str, Any]:
+        """Keep the top candidate instead of dropping the SFX on a mechanical
+        give-up (no-decision, repeated refine, or exhausted attempts)."""
+        if attempt_row and attempt_row.get("decision"):
+            attempt_row["decision"] = (
+                f"best-effort accept {cand.ref} ({attempt_row['decision']})"
+            )
+        else:
+            attempt_row["decision"] = f"best-effort accept {cand.ref}"
+        logger.info(
+            "Best-effort accept %s for %r (%s)",
+            cand.ref,
+            intent,
+            attempt_row["decision"],
+        )
+        return self._accept_and_download(
+            audit, attempt_row, providers, dest_dir, cand, intent
+        )
 
     def _finalize_miss(self, audit: dict[str, Any], reason: str) -> dict[str, Any]:
         audit["status"] = "miss"
@@ -439,11 +560,24 @@ class FoleyAgent:
         errors: list[str],
         attempt: int,
         raw_intent: str,
+        sustained: bool = False,
     ) -> FoleyStep:
         lines = [
             f"SFX intent: {intent}",
             f"Attempt {attempt}/{self.max_attempts} for query {query!r}:",
         ]
+        if sustained:
+            lines.append(
+                "This is a sustained background/ambience bed: prefer a clip long enough "
+                "to underlie the whole scene over a short one-shot loop."
+            )
+        else:
+            lines.append(
+                f"For a momentary impact sound, prefer the shortest clearly-matching "
+                f"candidate (ideally under ~{_MAX_IMPACT_CLIP_SEC}s). Accept a longer "
+                f"clip only if it is the only credible match or the intent is itself "
+                f"sustained."
+            )
         if candidates:
             lines.append("Candidate sounds (pick ONLY by exact ref):")
             for c in candidates:
@@ -493,7 +627,9 @@ _SYSTEM_MESSAGE = (
     "You are a sound-design librarian for an improv podcast. Given an SFX intent and a "
     "short list of candidate sounds found in a library, pick the single best candidate by "
     "its exact ref, or propose a sharper, concrete, library-searchable query to retry. "
-    "Prefer accepting a plausible match over endless searching. Physical object + action "
+    "Prefer accepting a plausible match over endless searching. Duration matters: for "
+    "momentary impact sounds pick the shortest clearly-matching clip; for sustained "
+    "ambience pick a clip long enough to underlie the scene. Physical object + action "
     "queries (e.g. 'door creak', 'cafe espresso machine hiss') beat abstract adjectives. "
     "Give up only when nothing is acceptable and no better query comes to mind."
 )

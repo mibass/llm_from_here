@@ -102,10 +102,11 @@ _DEFAULT_SFX_MAP: dict[str, Any] = {
         "arguments": {
             "duration_min_sec": 1,
             "duration_max_sec": 60,
+            "foley_max_duration_sec": 12,
         },
     },
     "background": {
-        "segment_type": "music_generator_freesound",
+        "segment_type": "music_generator_foley_ambience",
         "background_music": True,
         "arguments": {
             "duration_min_sec": 30,
@@ -114,6 +115,15 @@ _DEFAULT_SFX_MAP: dict[str, Any] = {
     },
     "default": {"segment_type": "slow_TTS", "arguments": {}},
 }
+
+
+_BASE_REALITY_RULE = (
+    "Establish the scene in the opening exchange. Your first two lines of DIALOG "
+    "must let a listener orient: where you are, what you are doing, and who your "
+    "partner is (and your relationship) \u2014 through action and concrete detail, "
+    "not exposition. Ground the base reality before fully committing to the "
+    "unusual game, and keep picking up details of the world in later beats."
+)
 
 
 class ImprovAgent:
@@ -144,12 +154,16 @@ class ImprovAgent:
         setup_model = setup_model or _DEFAULT_MODEL
         self.setup_session = LlmSession(self.setup_system_message, model_slug=setup_model)
 
+        establish_scene = bool(params.get("scene_establishment", True))
+        establish_rule = (params.get("scene_establishment_instruction") or "").strip() or _BASE_REALITY_RULE
         self.slot_sessions: list[LlmSession] = []
         for slot_cfg in self.character_slots_cfg:
             m = (slot_cfg.get("model") or "").strip() or _DEFAULT_MODEL
             sys_m = slot_cfg.get("system_message") or (
                 "You are an improv performer. Listen, yes-and, speak only in character."
             )
+            if establish_scene:
+                sys_m = f"{sys_m}\n\n{establish_rule}"
             self.slot_sessions.append(LlmSession(sys_m, model_slug=m))
 
         self.target_turn_count = int(params.get("target_turn_count", 20))
@@ -243,7 +257,8 @@ class ImprovAgent:
             "Transcript so far:\n"
             + "\n".join(transcript_parts)
             + f"\n\nYour turn, {ch_name}. Deliver the next beat as ONE structured turn:\n"
-            "- dialog: one or two sentences of spoken words only. Do NOT prefix your name. "
+            "- dialog: two to four sentences of spoken words only, so the beat has room "
+            "to land like a real podcast exchange. Do NOT prefix your name. "
             "Do NOT include stage directions or bracketed cues in dialog. "
             "End on the punchline; no 'you know'/'right?'/'exactly' padding, no compliment "
             "chains, no trailing tag-ons that restate the joke. If the setup is already paid "
