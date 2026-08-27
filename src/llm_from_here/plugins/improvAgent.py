@@ -18,12 +18,25 @@ from typing import Any
 import yaml
 
 from llm_from_here.llm_session import LlmSession
+from llm_from_here.openrouter_web_search import run_web_search
 from llm_from_here.plugins.freesoundfetch import FreeSoundFetch
 from llm_from_here.schemas.improv_outputs import ImprovTurn, SceneSetup
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "openrouter:deepseek/deepseek-v4-flash"
+
+# Web-search prompt used when ``news_inspiration: true`` with no custom prompt.
+# Targets ONE light, quirky story the director may mine for a seed, so the setup
+# note stays short and the model has a single hook rather than a news digest.
+_DEFAULT_NEWS_INSPIRATION_PROMPT = (
+    "Find one lighthearted, odd, or surprisingly wholesome news story from the past "
+    "week, ideal as quirky inspiration for an improv comedy scene. Avoid tragedy, "
+    "death, violence, disasters, war, and grim crime. Return a factual 2-3 sentence "
+    "summary plus the setting and the characters involved."
+)
+
+_MAX_NEWS_INSPIRATION_CHARS = 900
 
 # Hard upper bound on SFX cues honored per turn. The turn prompt asks for at
 # most one (a second only when integral); this guarantees the bound even when
@@ -169,6 +182,15 @@ class ImprovAgent:
         self.target_turn_count = int(params.get("target_turn_count", 20))
         self.scene_injection = (params.get("scene_injection") or "").strip()
 
+        self.news_inspiration: dict[str, Any] | None = None
+        news = params.get("news_inspiration")
+        if news is True:
+            self.news_inspiration = {"search_prompt": _DEFAULT_NEWS_INSPIRATION_PROMPT}
+        elif isinstance(news, dict):
+            cfg = dict(news)
+            cfg.setdefault("search_prompt", _DEFAULT_NEWS_INSPIRATION_PROMPT)
+            self.news_inspiration = cfg
+
         self.audit_log: list[dict[str, Any]] = []
         self.scene: SceneSetup | None = None
 
@@ -192,6 +214,32 @@ class ImprovAgent:
             }
         return base
 
+    def _fetch_news_inspiration(self) -> str:
+        """Best-effort weekly story for the director, or '' when unavailable."""
+        cfg = self.news_inspiration
+        if not cfg:
+            return ""
+        search_cfg = cfg.get("search") or {}
+        model = cfg.get("model") or search_cfg.get("model")
+        try:
+            result = run_web_search(
+                str(cfg["search_prompt"]),
+                model=model,
+                engine=search_cfg.get("engine"),
+                max_results=search_cfg.get("max_results"),
+                max_total_results=search_cfg.get("max_total_results"),
+                search_context_size=search_cfg.get("search_context_size", "medium"),
+                allowed_domains=search_cfg.get("allowed_domains"),
+                excluded_domains=search_cfg.get("excluded_domains"),
+            )
+        except Exception as e:  # noqa: BLE001 - inspiration is best-effort
+            logger.warning("News inspiration search failed: %s", e)
+            return ""
+        story = (result.content or "").strip()
+        if not story:
+            return ""
+        return story[:_MAX_NEWS_INSPIRATION_CHARS]
+
     def _run_setup(self) -> SceneSetup:
         n = len(self.character_slots_cfg)
         inj = ""
@@ -200,6 +248,15 @@ class ImprovAgent:
                 "\nOptional producer constraint (must honor if it does not violate safety):\n"
                 f"{self.scene_injection}\n"
             )
+        insp = ""
+        if self.news_inspiration:
+            story = self._fetch_news_inspiration()
+            if story:
+                insp = (
+                    "\nOptional real-world inspiration from this week's news (draw from it "
+                    "if it sparks a seed; nothing here is a requirement):\n"
+                    f"{story}\n"
+                )
         prompt = (
             f"{self.setup_system_message}\n\n"
             f"You must define exactly {n} characters with slots 1..{n} in order. "
@@ -214,7 +271,7 @@ class ImprovAgent:
             "primarily cost or feasibility.\n"
             "Also provide: setting, scenario (inciting incident), background_sound "
             "(short Freesound-style ambient query), and sfx_palette (3–5 short searchable SFX labels).\n"
-            f"{inj}\n"
+            f"{insp}{inj}\n"
             "Respond using the required structured output schema only."
         )
         data = self.setup_session.run_structured(prompt, SceneSetup, log_prompt=True)

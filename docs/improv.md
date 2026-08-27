@@ -52,6 +52,7 @@ uv run python evals/eval_improv_agent.py path/to/improv_debug.json      # LLM-as
 | `scene_establishment` | Prepend base-reality orienting rule to every performer prompt | `true` |
 | `scene_establishment_instruction` | Custom rule replacing the default (default = *first two lines must orient a listener: where, what, who*) | default rule |
 | `foley_max_duration_sec` | Hard cap on any fetched SFX clip (fade-truncated downstream) | unset (no cap) |
+| `news_inspiration` | Feed the director one quirky story from the week as optional inspiration (`true` for the default prompt, or a dict with `search_prompt` / `search` / `model`). Best-effort; a failed search is logged and setup continues without it. | unset (off) |
 
 Per-character scenes can be tuned by `setup_system_message` (niche obsessions, the
 anti-cost-friction rule, multi-axis escalation). Structured-output schemas are tracked
