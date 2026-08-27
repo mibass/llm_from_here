@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from pydantic import BaseModel
+from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.output import NativeOutput
 
 from llm_from_here.llm_session import LlmSession
@@ -58,10 +59,25 @@ class TestLlmSession(unittest.TestCase):
 
         self.assertEqual(out, {"x": 2})
         self.assertEqual(self.mock_agent.run_sync.call_count, 2)
-        first_spec = self.mock_agent.run_sync.call_args_list[0].kwargs["output_type"]
-        second_spec = self.mock_agent.run_sync.call_args_list[1].kwargs["output_type"]
-        self.assertIsInstance(first_spec, NativeOutput)
-        self.assertIs(second_spec, _Mini)
+
+    def test_run_structured_retries_on_transient_error(self):
+        mock_ok = MagicMock()
+        mock_ok.output = _Mini(x=3)
+        mock_ok.new_messages.return_value = []
+        self.mock_agent.run_sync.side_effect = [
+            UnexpectedModelBehavior("Exceeded maximum output retries (5)"),
+            mock_ok,
+        ]
+
+        with patch("llm_from_here.llm_session.get_structured_output_mode", return_value="tool"):
+            with patch("llm_from_here.llm_session.is_openrouter_free_mode", return_value=False):
+                with patch("time.sleep") as mock_sleep:
+                    out = self.session.run_structured("p", _Mini, log_prompt=False)
+
+        self.assertEqual(out, {"x": 3})
+        # original attempt + one transient retry (mode fallback should not trigger here)
+        self.assertEqual(self.mock_agent.run_sync.call_count, 2)
+        mock_sleep.assert_called_once()
 
     @patch("llm_from_here.llm_session.OpenRouterModel")
     @patch("llm_from_here.llm_session.is_openrouter_free_mode", return_value=True)
@@ -88,14 +104,19 @@ class TestLlmSessionModelSlug(unittest.TestCase):
     @patch("llm_from_here.llm_session.get_openrouter_chat_model", return_value="deepseek/deepseek-chat")
     @patch("llm_from_here.llm_session.OpenRouterModel")
     @patch("llm_from_here.llm_session.Agent")
+    @patch("llm_from_here.llm_session._openrouter_provider")
     def test_openrouter_prefix_uses_openrouter_model(
-        self, mock_agent_cls, mock_or_model, _mock_get_slug, _mock_log_free
+        self, mock_provider, mock_agent_cls, mock_or_model, _mock_get_slug, _mock_log_free
     ):
         mock_agent_cls.return_value = MagicMock()
         fake_or = MagicMock(name="ORM")
         mock_or_model.return_value = fake_or
+        fake_provider = MagicMock(name="provider")
+        mock_provider.return_value = fake_provider
         LlmSession("", model_slug="openrouter:anthropic/claude-3.5-haiku")
-        mock_or_model.assert_called_once_with("anthropic/claude-3.5-haiku")
+        mock_or_model.assert_called_once_with(
+            "anthropic/claude-3.5-haiku", provider=fake_provider
+        )
         self.assertIs(mock_agent_cls.call_args[0][0], fake_or)
 
 

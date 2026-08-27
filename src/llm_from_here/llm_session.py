@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+import time
 from collections import Counter
 from typing import Any, cast
 
+import httpx
 import yaml
 from pydantic import BaseModel
 from pydantic_ai import Agent, AgentRetries
+from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError, UnexpectedModelBehavior
 from pydantic_ai.messages import ModelMessagesTypeAdapter
 from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.output import NativeOutput
 from pydantic_ai.profiles.openai import OpenAIModelProfile
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 from retry import retry
 import openai
 
@@ -31,6 +36,58 @@ logger = logging.getLogger(__name__)
 import dotenv
 
 dotenv.load_dotenv()
+
+# A stalled OpenRouter SSE stream ("200 OK" headers, then the body never finishes)
+# previously hung `run_sync` for tens of minutes. We inject a bounded-timeout httpx
+# client into every OpenRouterModel so that hang raises a retriable error instead.
+_OPENROUTER_HTTP_CLIENT: httpx.AsyncClient | None = None
+
+
+def openrouter_read_timeout_s() -> float:
+    """Read timeout in seconds for OpenRouter responses (default 120, env-tunable)."""
+    raw = os.getenv("LLMFH_OPENROUTER_HTTP_TIMEOUT_S", "").strip()
+    try:
+        timeout = float(raw)
+    except ValueError:
+        timeout = 120.0
+    return timeout if timeout > 0 else 120.0
+
+
+def _openrouter_provider() -> OpenRouterProvider:
+    """OpenRouterProvider backed by a lazily-created bounded-timeout httpx client."""
+    global _OPENROUTER_HTTP_CLIENT
+    if _OPENROUTER_HTTP_CLIENT is None:
+        _OPENROUTER_HTTP_CLIENT = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                connect=10.0,
+                read=openrouter_read_timeout_s(),
+                write=30.0,
+                pool=10.0,
+            )
+        )
+    return OpenRouterProvider(http_client=_OPENROUTER_HTTP_CLIENT)
+
+
+# Transient provider/network errors worth one bounded retry at the structured-call
+# level. `UnexpectedModelBehavior` covers "Exceeded maximum output retries (5)":
+# a fresh LLM attempt (as opposed to re-validating the same output) recovers it.
+_TRANSIENT_LLM_ERRORS: tuple[type[BaseException], ...] = (
+    httpx.TimeoutException,
+    httpx.ConnectError,
+    httpx.ReadError,
+    httpx.RemoteProtocolError,
+    openai.APITimeoutError,
+    openai.APIConnectionError,
+    openai.RateLimitError,
+    openai.InternalServerError,
+    ModelHTTPError,
+    ModelAPIError,
+    UnexpectedModelBehavior,
+)
+
+
+def _is_transient_llm_error(exc: BaseException) -> bool:
+    return isinstance(exc, _TRANSIENT_LLM_ERRORS)
 
 
 class LlmSession:
@@ -67,17 +124,19 @@ class LlmSession:
             if is_openrouter_free_mode():
                 return OpenRouterModel(
                     slug,
+                    provider=_openrouter_provider(),
                     profile=OpenAIModelProfile(openai_supports_tool_choice_required=False),
                 )
-            return OpenRouterModel(slug)
+            return OpenRouterModel(slug, provider=_openrouter_provider())
         if model_slug.startswith("openrouter:"):
             inner = model_slug.split(":", 1)[1].strip() or get_openrouter_chat_model()
             if is_openrouter_free_mode():
                 return OpenRouterModel(
                     inner,
+                    provider=_openrouter_provider(),
                     profile=OpenAIModelProfile(openai_supports_tool_choice_required=False),
                 )
-            return OpenRouterModel(inner)
+            return OpenRouterModel(inner, provider=_openrouter_provider())
         return model_slug
 
     def __getstate__(self) -> dict[str, Any]:
@@ -178,18 +237,14 @@ class LlmSession:
         msg = str(exc).lower()
         return "tool choice must be auto" in msg
 
-    def run_structured(
+    def _run_structured_mode(
         self,
         prompt: str,
         output_type: type[BaseModel],
+        mode: StructuredOutputMode,
         *,
-        log_prompt: bool = False,
-        structured_mode: StructuredOutputMode | None = None,
+        explicit_mode: bool,
     ) -> Any:
-        mode = structured_mode or get_structured_output_mode(self.model_slug)
-        if log_prompt:
-            logger.info("run_structured mode=%s prompt=%s", mode, prompt)
-
         def _run(mode_try: StructuredOutputMode) -> Any:
             spec = self._output_spec(output_type, mode_try)
             result = self._agent.run_sync(
@@ -203,7 +258,7 @@ class LlmSession:
         try:
             return _run(mode)
         except Exception as e:
-            if self._should_retry_structured_mode(e, explicit_mode=structured_mode is not None):
+            if self._should_retry_structured_mode(e, explicit_mode=explicit_mode):
                 alt: StructuredOutputMode = "tool" if mode == "native" else "native"
                 logger.warning(
                     "Structured %s output failed (%s); retrying with %s mode",
@@ -215,6 +270,42 @@ class LlmSession:
                     self.delete_last_message()
                 return _run(alt)
             raise
+
+    def run_structured(
+        self,
+        prompt: str,
+        output_type: type[BaseModel],
+        *,
+        log_prompt: bool = False,
+        structured_mode: StructuredOutputMode | None = None,
+    ) -> Any:
+        mode = structured_mode or get_structured_output_mode(self.model_slug)
+        if log_prompt:
+            logger.info("run_structured mode=%s prompt=%s", mode, prompt)
+
+        transient_attempts = 2
+        for attempt in range(transient_attempts):
+            try:
+                return self._run_structured_mode(
+                    prompt,
+                    output_type,
+                    mode,
+                    explicit_mode=structured_mode is not None,
+                )
+            except Exception as e:
+                if attempt < transient_attempts - 1 and _is_transient_llm_error(e):
+                    delay = 1.0 + attempt * 1.5
+                    logger.warning(
+                        "Transient LLM error on structured call (%s); "
+                        "retrying %d/%d in %.1fs",
+                        e,
+                        attempt + 2,
+                        transient_attempts,
+                        delay,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise
 
     def enforce_list_response(
         self,
