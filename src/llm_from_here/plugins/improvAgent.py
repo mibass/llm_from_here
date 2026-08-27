@@ -127,6 +127,16 @@ def _extract_sung_cue(text: str) -> str | None:
     return s or None
 
 
+def _sung_directive(song: str) -> str:
+    """Produce dialog that reliably makes the expressive Gemini TTS hum a melody.
+
+    A terse "You hum X." is read as narration and spoken, but giving the voice
+    pacing ("exactly one time, then stop") and a soft register makes it *perform*
+    the hum instead of reading it (verified against Gemini 3.1 Flash TTS).
+    """
+    return f'You hum. You have to hum "{song}" exactly one time, and then you stop. Soft and gentle.'
+
+
 def _strip_performance_directives(dialog: str) -> str:
     """Drop leading directive sentences that instruct a performance (hum/sing/...).
 
@@ -505,7 +515,7 @@ class ImprovAgent:
                 # expressive Gemini TTS (it reliably hums/sings a clear instruction). Keep
                 # it out of the spoken-prose path so we control when/why it performs.
                 if sung:
-                    dialog = f'You hum "{sung}".'
+                    dialog = _sung_directive(sung)
 
                 segments.append(
                     {

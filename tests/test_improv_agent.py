@@ -242,7 +242,10 @@ class TestImprovAgentBuildMap(unittest.TestCase):
             char1 = next(s for s in segments if s["speaker"] == "character 1")
             # A sung beat becomes a controlled performance directive for the TTS,
             # not prose narration, so the voice reliably hums on request.
-            self.assertEqual(char1["dialog"], 'You hum "Twinkle Twinkle".')
+            self.assertEqual(
+                char1["dialog"],
+                'You hum. You have to hum "Twinkle Twinkle" exactly one time, and then you stop. Soft and gentle.',
+            )
             # The descriptive line stays as dialogue (no perf-directive false positive).
             char2 = next(s for s in segments if s["speaker"] == "character 2")
             self.assertEqual(char2["dialog"], "You hum it so well.")
