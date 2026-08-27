@@ -10,12 +10,15 @@ from unittest.mock import MagicMock, patch
 from llm_from_here.plugins.improvAgent import (
     ImprovAgent,
     _clean_dialog,
+    _DEFAULT_NEWS_INSPIRATION_PROMPT,
     _ESCALATOR_MOVES,
     _extract_bracket_cues,
+    _extract_sung_cue,
     _normalize_sfx_query,
     _rotating_moves,
     _STRAIGHT_MAN_MOVES,
     _strip_bracket_cues,
+    _strip_performance_directives,
 )
 from llm_from_here.plugins.segmentsToTimeline import SegmentsToTimeline
 from llm_from_here.schemas.improv_outputs import CharacterSlotSetup, ImprovTurn, SceneSetup
@@ -29,13 +32,24 @@ class TestBracketHelpers(unittest.TestCase):
         self.assertIn("rain", cues)
         # Arbitrary stage directions must NOT become SFX queries.
         self.assertNotIn("Alice leans closer", cues)
-        self.assertFalse(any("BACKGROUND" in c for c in cues))
 
     def test_strip_bracket_cues_removes_all_brackets(self):
-        s = "Hello [door creak] there [SFX: bell]!"
-        stripped = _strip_bracket_cues(s)
-        self.assertNotIn("[", stripped)
-        self.assertNotIn("door creak", stripped)
+        self.assertEqual(_strip_bracket_cues("Hi [SFX: ding] there"), "Hi there")
+
+    def test_extract_sung_cue_reads_each_alias(self):
+        for cue in ("[SUNG: Twinkle Twinkle]", "[SING: Happy Birthday]", "[HUM: la la la]"):
+            self.assertEqual(_extract_sung_cue(cue), cue[6:-1].strip())
+        self.assertIsNone(_extract_sung_cue("no cue here"))
+
+    def test_strip_performance_directives_removes_leading_instruction(self):
+        leak = "You hum. You have to hum 'Twinkle Twinkle' exactly one time, and then you stop. I'll count us in."
+        cleaned = _strip_performance_directives(leak)
+        self.assertNotIn("You hum", cleaned)
+        self.assertNotIn("have to hum", cleaned)
+
+    def test_strip_performance_directives_keeps_real_dialog(self):
+        real = "You hum it so well. That's your superpower."
+        self.assertEqual(_strip_performance_directives(real), real)
 
     def test_normalize_sfx_query_trims_and_caps(self):
         self.assertEqual(_normalize_sfx_query("  Coffee machine steam.  "), "Coffee machine steam")
@@ -75,12 +89,48 @@ class TestRotatingMoves(unittest.TestCase):
             }
             agent = ImprovAgent(params, {"output_folder": tmp}, "improv")
             esc_move, sm_move = _rotating_moves(1)
-            prompt = agent._turn_prompt(_make_scene(), "A", ["A: hi"], turn_index=1)
+            prompt = agent._turn_prompt(_make_scene(), "A", ["A: hi"], turn_index=1, is_final_beat=False)
 
             self.assertIn("exactly ONE move", prompt)
             self.assertIn(esc_move, prompt)
             self.assertIn(sm_move, prompt)
             self.assertIn("at most ONE concrete", prompt)
+
+            final = agent._turn_prompt(_make_scene(), "B", ["A: hi"], turn_index=5, is_final_beat=True)
+            self.assertIn("FINAL BEAT", final)
+            self.assertIn("Callback", final)
+            self.assertNotIn("exactly ONE move", final)
+
+    def test_setup_prompt_lists_friction_examples_and_wanders_beyond(self) -> None:
+        with patch("llm_from_here.plugins.improvAgent.LlmSession") as mock_llm, patch(
+            "llm_from_here.plugins.improvAgent.FreeSoundFetch"
+        ), tempfile.TemporaryDirectory() as tmp:
+            session = MagicMock()
+            session.run_structured.return_value = _make_scene().model_dump()
+            mock_llm.return_value = session
+            params = {
+                "setup_model": "openrouter:deepseek/deepseek-v4-flash",
+                "character_slots": [
+                    {"model": "openrouter:deepseek/deepseek-v4-flash"},
+                    {"model": "openrouter:deepseek/deepseek-v4-flash"},
+                ],
+            }
+            agent = ImprovAgent(params, {"output_folder": tmp}, "improv")
+            agent._run_setup()
+
+            prompt = session.run_structured.call_args[0][0]
+            self.assertIn("examples only", prompt)
+            self.assertIn("wander beyond them", prompt)
+            self.assertIn("world-view", prompt)
+            self.assertNotIn("must come from a code", prompt)
+
+    def test_news_inspiration_prompt_prefers_familiar_story(self) -> None:
+        prompt = _DEFAULT_NEWS_INSPIRATION_PROMPT.lower()
+        self.assertIn("familiar", prompt)
+        self.assertIn("notable", prompt)
+        self.assertIn("search results", prompt)
+        for word in ("odd", "quirky", "under-the-radar"):
+            self.assertNotIn(word, prompt)
 
 
 def _make_scene() -> SceneSetup:
@@ -170,6 +220,36 @@ class TestImprovAgentBuildMap(unittest.TestCase):
             turn_rows = [r for r in agent.audit_log if r.get("phase") == "turn"]
             self.assertEqual(len(turn_rows), 2)
             self.assertIn("Hello", script)
+
+    def test_sung_cue_routes_to_controlled_hum_directive(
+        self, mock_fs: MagicMock, mock_llm: MagicMock
+    ) -> None:
+        mock_fs.return_value = MagicMock()
+        mock_llm.side_effect = [MagicMock(), MagicMock(), MagicMock()]
+        with tempfile.TemporaryDirectory() as tmp:
+            params = {**self._params(), "target_turn_count": 2}
+            agent = ImprovAgent(params, {"output_folder": tmp}, "improv")
+
+            turns = [
+                ImprovTurn(dialog="Watch this", stage_direction="[SUNG: Twinkle Twinkle]"),
+                ImprovTurn(dialog="You hum it so well."),
+            ]
+            for sess, turn in zip(agent.slot_sessions, turns):
+                sess.run_structured = MagicMock(return_value=turn)
+
+            segments, script = agent._generation_loop(_make_scene())
+
+            char1 = next(s for s in segments if s["speaker"] == "character 1")
+            # A sung beat becomes a controlled performance directive for the TTS,
+            # not prose narration, so the voice reliably hums on request.
+            self.assertEqual(char1["dialog"], 'You hum "Twinkle Twinkle".')
+            # The descriptive line stays as dialogue (no perf-directive false positive).
+            char2 = next(s for s in segments if s["speaker"] == "character 2")
+            self.assertEqual(char2["dialog"], "You hum it so well.")
+            # Audit records the beat kind.
+            turn_rows = [r for r in agent.audit_log if r.get("phase") == "turn"]
+            self.assertEqual(turn_rows[0]["kind"], "sung")
+            self.assertEqual(turn_rows[1]["kind"], "dialog")
 
 
 class TestSegmentTypeMapVariable(unittest.TestCase):

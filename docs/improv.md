@@ -13,9 +13,12 @@ renders down to plain WAV + WebVTT-style timeline HTML via the standard
 1. **Setup** — `SceneSetup` from `schemas/improv_outputs.py`. The director emits
    characters (with niche obsessions + escalation vectors), a grounded setting, an
    inciting scenario, a background ambience search query, and an `sfx_palette`.
-2. **Turns** — each character is a separate `LlmSession` with its own model/system
-   message. Turns are `ImprovTurn {dialog, stage_direction, sfx_cues}`; a `TurnJudgement`
-   per beat scores `coherence`, `yes_and`, `character_consistency` and can end the scene.
+ 2. **Turns** — each character is a separate `LlmSession` with its own model/system
+    message. Turns are `ImprovTurn {dialog, stage_direction, sfx_cues}`; a `TurnJudgement`
+    per beat scores `coherence`, `yes_and`, `character_consistency` and can end the scene.
+    A sung/hummed beat is signalled with `[SUNG: <what is sung>]` in `stage_direction`;
+    it becomes a controlled performance directive for the expressive Gemini TTS (which
+    otherwise may accidentally hum from performance prose leaking into `dialog`).
 3. **Segments** — turns flatten to `ImprovSegment`s; SFX cues map to a `segment_type_map`
    (default `_DEFAULT_SFX_MAP`: `sound effect` -> `music_generator_freesound`,
    `background` -> `music_generator_foley_ambience`).
@@ -52,7 +55,7 @@ uv run python evals/eval_improv_agent.py path/to/improv_debug.json      # LLM-as
 | `scene_establishment` | Prepend base-reality orienting rule to every performer prompt | `true` |
 | `scene_establishment_instruction` | Custom rule replacing the default (default = *first two lines must orient a listener: where, what, who*) | default rule |
 | `foley_max_duration_sec` | Hard cap on any fetched SFX clip (fade-truncated downstream) | unset (no cap) |
-| `news_inspiration` | Feed the director one quirky story from the week as optional inspiration (`true` for the default prompt, or a dict with `search_prompt` / `search` / `model`). Best-effort; a failed search is logged and setup continues without it. | unset (off) |
+| `news_inspiration` | Feed the director one familiar, notable news story from the week as optional inspiration (`true` for the default prompt, or a dict with `search_prompt` / `search` / `model`). Open to any topic; the model picks based on the search results. Best-effort; a failed search is logged and setup continues without it. | unset (off) |
 
 Per-character scenes can be tuned by `setup_system_message` (niche obsessions, the
 anti-cost-friction rule, multi-axis escalation). Structured-output schemas are tracked

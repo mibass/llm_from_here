@@ -27,13 +27,15 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MODEL = "openrouter:deepseek/deepseek-v4-flash"
 
 # Web-search prompt used when ``news_inspiration: true`` with no custom prompt.
-# Targets ONE light, quirky story the director may mine for a seed, so the setup
-# note stays short and the model has a single hook rather than a news digest.
+# The director mines ONE familiar, well-known story from the week as optional
+# inspiration. It is open to any topic; the model picks based on the (already
+# retrieved) search results rather than being steered toward a niche/odd story.
 _DEFAULT_NEWS_INSPIRATION_PROMPT = (
-    "Find one lighthearted, odd, or surprisingly wholesome news story from the past "
-    "week, ideal as quirky inspiration for an improv comedy scene. Avoid tragedy, "
-    "death, violence, disasters, war, and grim crime. Return a factual 2-3 sentence "
-    "summary plus the setting and the characters involved."
+    "Among the search results, pick ONE familiar, notable, well-known news story from "
+    "the past week, open to any topic. Keep it light and wholesome: avoid tragedy, death, "
+    "violence, disasters, war, and grim crime. Choose based on the actual results \u2014 do "
+    "not invent one. Return a factual 2-3 sentence summary plus the setting and the "
+    "characters involved."
 )
 
 _MAX_NEWS_INSPIRATION_CHARS = 900
@@ -47,6 +49,25 @@ _ANY_BRACKET_RE = re.compile(r"\[([^\]]+)\]")
 # Only explicit sound cues become SFX; arbitrary stage directions like
 # ``[Alice leans closer]`` are not treated as Freesound queries.
 _SFX_CUE_RE = re.compile(r"\[(?:SFX|SOUND)\s*:\s*([^\]]+)\]", re.IGNORECASE)
+# A sung/hummed beat is requested as ``[SUNG: <what is sung>]`` in stage_direction
+# (never dialog). The expressive Gemini TTS performs it as a hum/song when we pass
+# it a clear directive, so we route it deliberately rather than letting prose leak.
+_SUNG_CUE_RE = re.compile(r"\[(?:SUNG|SING|HUM)\s*:\s*([^\]]+)\]", re.IGNORECASE)
+# A directive sentence that instructs the voice to perform rather than speak; used
+# to keep accidental performance instructions out of spoken dialog (belt + suspenders
+# on top of the prompt rule). Two shapes: a modal imperative ("you have to hum...") or
+# a bare imperative ("hum Twinkle Twinkle"/"you hum."). Descriptive phrasing like
+# "you hum it so well" is NOT matched and stays as dialogue.
+_PERFORM_DIRECTIVE_RE = re.compile(
+    r"^\s*(?:"
+    r"(?:you\s+(?:must|have to|need to|should|gotta|could)\s+)?"
+    r"(?:hum|humming|sing|singing|whistle|whistling|laugh|laughing|sigh|sighing|"
+    r"chant|chanting|moan|moaning|growl|growling|mutter|muttering)\b"
+    r"|"
+    r"you\s+(?:hum|humming|sing|singing|whistle|whistling)\s*(?:[.!?:,]|$)"
+    r")",
+    re.IGNORECASE,
+)
 
 # Rotating "this beat, play this move" menus injected per turn to break the
 # recurrent groove where the escalator only scales up and the straight man
@@ -97,6 +118,35 @@ def _normalize_sfx_query(cue: str) -> str:
     return s[:120]
 
 
+def _extract_sung_cue(text: str) -> str | None:
+    """Return the requested sung/hummed content from a ``[SUNG: ...]`` cue, or None."""
+    m = _SUNG_CUE_RE.search(text or "")
+    if not m:
+        return None
+    s = re.sub(r"\s+", " ", m.group(1)).strip()
+    return s or None
+
+
+def _strip_performance_directives(dialog: str) -> str:
+    """Drop leading directive sentences that instruct a performance (hum/sing/...).
+
+    Guards against a performer leaking an acting note into spoken dialog, which the
+    expressive Gemini TTS would otherwise *perform* (e.g. it may hum a melody).
+    """
+    if not dialog:
+        return dialog
+    sentences = re.split(r"(?<=[.!?])\s+", dialog.strip())
+    kept: list[str] = []
+    started = False
+    for sent in sentences:
+        if not started and _PERFORM_DIRECTIVE_RE.match(sent):
+            continue
+        started = True
+        kept.append(sent)
+    out = " ".join(kept).strip()
+    return out or dialog.strip()
+
+
 def _clean_dialog(dialog: str, name: str) -> str:
     """Strip bracket cues, surrounding quotes, and leaked ``Name:`` speaker prefixes."""
     cleaned = _strip_bracket_cues(dialog or "")
@@ -105,6 +155,7 @@ def _clean_dialog(dialog: str, name: str) -> str:
     while prev != cleaned:
         prev = cleaned
         cleaned = prefix_re.sub("", cleaned)
+    cleaned = _strip_performance_directives(cleaned)
     cleaned = cleaned.strip().strip('"').strip()
     return cleaned or (dialog or "").strip()
 
@@ -267,8 +318,12 @@ class ImprovAgent:
             "escalation vectors so the performers can heighten in kind (elaborating logic, "
             "reinterpreting reality, inverting authority, compounding commitment), not only "
             "in scale. Make the conflict axis NON-financial: the straight man's friction must "
-            "come from a code (procedure, duty, policy, physical law, personal stake), not "
-            "primarily cost or feasibility.\n"
+            "not be primarily cost or feasibility. Pick the opposing force freely from a wider "
+            "menu, e.g. a personal rule, a duty or code, a physical or practical constraint, a "
+            "social obligation or status worry, a world-view or taste clash, a deadline, a "
+            "relationship tension, or a personal stake. These are examples only: vary the type "
+            "scene-to-scene, and occasionally wander beyond them \u2014 do NOT default to a "
+            "policy, regulation, or bureaucrat.\n"
             "Also provide: setting, scenario (inciting incident), background_sound "
             "(short Freesound-style ambient query), and sfx_palette (3–5 short searchable SFX labels).\n"
             f"{insp}{inj}\n"
@@ -303,13 +358,46 @@ class ImprovAgent:
             )
 
     def _turn_prompt(
-        self, scene: SceneSetup, ch_name: str, transcript_parts: list[str], turn_index: int
+        self,
+        scene: SceneSetup,
+        ch_name: str,
+        transcript_parts: list[str],
+        turn_index: int,
+        is_final_beat: bool,
     ) -> str:
         palette = ", ".join(scene.sfx_palette) if scene.sfx_palette else ""
         palette_hint = (
             f"Prefer sounds from this palette when apt: {palette}. " if palette else ""
         )
         esc_move, sm_move = _rotating_moves(turn_index)
+
+        if is_final_beat:
+            move_line = (
+                "\nTHIS IS THE FINAL BEAT \u2014 button the scene. Deliver ONE decisive closing "
+                "line that pays off the game and lands, not merely continues it:\n"
+                "- Callback: invoke an earlier object, phrase, or number from the transcript "
+                "and reveal its full meaning (the straight man's code fulfilled, the escalator's "
+                "obsession completed, a setup the audience clocked).\n"
+                "- OR fulfill the premise's logical extreme: the final, most committed version "
+                "of the game \u2014 the absurdity resolved in a clean, hard pop.\n"
+                "- One clean line, hard stop. Do NOT open anything new, do NOT trail off, and "
+                "do NOT add a tag-on, a 'yep', an 'exactly', or a restatement.\n"
+                "Put the button mostly in dialog; a stage_direction or one SFX cue is allowed but optional.\n"
+            )
+        else:
+            button_hint = ""
+            if turn_index >= self.target_turn_count - 2:
+                button_hint = (
+                    "\nThe scene is building to its button. Once a beat lands the big laugh, "
+                    "do not open a new escalation \u2014 the next beat should pay the game off.\n"
+                )
+            move_line = (
+                "\nThis beat, play exactly ONE move. If you are the ESCALATOR: "
+                f"{esc_move}. If you are the STRAIGHT MAN: {sm_move}. "
+                "Break ties toward surprise.\n"
+                f"{button_hint}"
+            )
+
         return (
             "Transcript so far:\n"
             + "\n".join(transcript_parts)
@@ -317,18 +405,21 @@ class ImprovAgent:
             "- dialog: two to four sentences of spoken words only, so the beat has room "
             "to land like a real podcast exchange. Do NOT prefix your name. "
             "Do NOT include stage directions or bracketed cues in dialog. "
+            "Never put performance verbs or acting notes in dialog (hum, sing, whistle, "
+            "laugh, sigh, 'you have to...') \u2014 those go in stage_direction, and the "
+            "voice will otherwise perform them. "
             "End on the punchline; no 'you know'/'right?'/'exactly' padding, no compliment "
             "chains, no trailing tag-ons that restate the joke. If the setup is already paid "
             "off, subvert the predictable. Be specific: name the object, the brand, the number.\n"
-            "- stage_direction: optional short acting note (not spoken).\n"
+            "- stage_direction: optional short acting note (not spoken). If this beat needs a "
+            "song or hum, write it here as [SUNG: <what is sung, e.g. 'Happy Birthday'>]; "
+            "keep the spoken dialog clean.\n"
             "- sfx_cues: at most ONE concrete, audible sound-effect search query, and only "
             "add a second if a sound is genuinely integral to the beat. "
             f"{palette_hint}"
             "Use real sounds (e.g. 'coffee machine steam', 'doorbell chime', 'chair scrape'), "
             "not emotions or gestures. Leave empty if no sound is warranted.\n"
-            "\nThis beat, play exactly ONE move. If you are the ESCALATOR: "
-            f"{esc_move}. If you are the STRAIGHT MAN: {sm_move}. "
-            "Break ties toward surprise.\n"
+            f"{move_line}"
         )
 
     def _sfx_segments_for_turn(
@@ -399,11 +490,22 @@ class ImprovAgent:
                     break
                 ch = scene.characters[i]
                 speaker_key = f"character {ch.slot}"
-                prompt = self._turn_prompt(scene, ch.name, transcript_parts, turns_done)
+                is_final = (turns_done + 1) >= self.target_turn_count
+                prompt = self._turn_prompt(
+                    scene, ch.name, transcript_parts, turns_done, is_final
+                )
 
                 raw = sess.run_structured(prompt, ImprovTurn)
                 turn = ImprovTurn.model_validate(raw)
                 dialog = _clean_dialog(turn.dialog, ch.name)
+
+                sung = _extract_sung_cue(turn.stage_direction) or _extract_sung_cue(turn.dialog)
+                beat_kind = "sung" if sung else "dialog"
+                # A requested song/hum becomes a controlled performance directive for the
+                # expressive Gemini TTS (it reliably hums/sings a clear instruction). Keep
+                # it out of the spoken-prose path so we control when/why it performs.
+                if sung:
+                    dialog = f'You hum "{sung}".'
 
                 segments.append(
                     {
@@ -422,6 +524,7 @@ class ImprovAgent:
                         "turn_index": turns_done,
                         "slot": ch.slot,
                         "character": ch.name,
+                        "kind": beat_kind,
                         "dialog": dialog,
                         "stage_direction": turn.stage_direction,
                         "sfx_cues": list(turn.sfx_cues),
