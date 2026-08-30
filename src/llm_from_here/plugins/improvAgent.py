@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
 from copy import deepcopy
 from typing import Any
@@ -208,6 +209,14 @@ class ImprovAgent:
         self.global_results = global_results
         self.plugin_instance_name = plugin_instance_name
         self.output_folder = global_results.get("output_folder", ".")
+
+        self.included = self._roll_include()
+        if not self.included:
+            logger.info(
+                "include_probability=%s: skipping improv scene for %s",
+                params.get("include_probability"),
+                plugin_instance_name,
+            )
         self.freesound_fetch = FreeSoundFetch(
             params, global_results, plugin_instance_name, out_dir=self.output_folder
         )
@@ -566,7 +575,26 @@ class ImprovAgent:
             logger.error("Could not write improv_debug.json: %s", e)
             return None
 
+    def _roll_include(self) -> bool:
+        prob = self.params.get("include_probability")
+        if prob is None:
+            return True
+        try:
+            threshold = float(prob)
+        except (TypeError, ValueError) as err:
+            raise ValueError(f"include_probability must be a number, got {prob!r}") from err
+        if threshold < 0 or threshold > 1:
+            raise ValueError(f"include_probability must be between 0 and 1, got {threshold}")
+        return random.random() < threshold
+
     def execute(self) -> dict[str, Any]:
+        if not self.included:
+            return {
+                "included": False,
+                "segments": [],
+                "script": [],
+                "segment_type_map": {},
+            }
         self.scene = self._run_setup()
         assert self.scene is not None
         self._prime_slots(self.scene)

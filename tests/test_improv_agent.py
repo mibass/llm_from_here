@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from llm_from_here.plugins.improvAgent import (
@@ -22,8 +23,6 @@ from llm_from_here.plugins.improvAgent import (
 )
 from llm_from_here.plugins.segmentsToTimeline import SegmentsToTimeline
 from llm_from_here.schemas.improv_outputs import CharacterSlotSetup, ImprovTurn, SceneSetup
-
-
 class TestBracketHelpers(unittest.TestCase):
     def test_extract_only_explicit_sfx_cues(self):
         s = "Hi there [Alice leans closer] [SFX: door creak] [SOUND: rain] [BACKGROUND: x]"
@@ -305,6 +304,110 @@ class TestSlowTtsReceivesVoiceArgs(unittest.TestCase):
                 voice="Puck",
                 model="google/gemini-3.1-flash-tts-preview",
             )
+
+
+class TestImprovIncludeProbability(unittest.TestCase):
+    def _params(self) -> dict[str, Any]:
+        return {
+            "setup_model": "openrouter:deepseek/deepseek-v4-flash",
+            "character_slots": [
+                {"model": "openrouter:deepseek/deepseek-v4-flash"},
+                {"model": "openrouter:deepseek/deepseek-v4-flash"},
+            ],
+        }
+
+    def _make_agent(self, params: dict[str, Any], tmp: str, **agent_kwargs: Any) -> ImprovAgent:
+        with patch("llm_from_here.plugins.improvAgent.LlmSession") as mock_llm, patch(
+            "llm_from_here.plugins.improvAgent.FreeSoundFetch"
+        ):
+            mock_llm.return_value = MagicMock()
+            return ImprovAgent(params, {"output_folder": tmp}, "improv", **agent_kwargs)
+
+    def test_no_probability_runs_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = self._make_agent(self._params(), tmp)
+            self.assertTrue(agent.included)
+
+    def test_probability_zero_excludes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = self._make_agent({**self._params(), "include_probability": 0.0}, tmp)
+            self.assertFalse(agent.included)
+
+    def test_probability_one_includes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = self._make_agent({**self._params(), "include_probability": 1.0}, tmp)
+            self.assertTrue(agent.included)
+
+    def test_probability_respected_for_roll(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("llm_from_here.plugins.improvAgent.random.random", return_value=0.5):
+                agent = self._make_agent({**self._params(), "include_probability": 0.25}, tmp)
+                self.assertFalse(agent.included)
+            with patch("llm_from_here.plugins.improvAgent.random.random", return_value=0.5):
+                agent = self._make_agent({**self._params(), "include_probability": 0.75}, tmp)
+                self.assertTrue(agent.included)
+
+    def test_invalid_probability_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                self._make_agent({**self._params(), "include_probability": 1.5}, tmp)
+            with self.assertRaises(ValueError):
+                self._make_agent({**self._params(), "include_probability": -1}, tmp)
+
+    @patch("llm_from_here.plugins.improvAgent.LlmSession")
+    @patch("llm_from_here.plugins.improvAgent.FreeSoundFetch")
+    def test_skipped_execute_returns_empty_without_setup(self, _mock_fs: MagicMock, mock_llm: MagicMock) -> None:
+        mock_llm.return_value = MagicMock()
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = ImprovAgent(
+                {**self._params(), "include_probability": 0.0},
+                {"output_folder": tmp},
+                "improv",
+            )
+            result = agent.execute()
+            self.assertFalse(result["included"])
+            self.assertEqual(result["segments"], [])
+            self.assertEqual(result["script"], [])
+            mock_llm.return_value.run_structured.assert_not_called()
+
+
+class TestImprovProdSpliceConfig(unittest.TestCase):
+    """The configv3 mid-show spur: improv at 0.25, spoof pass-through wiring."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from llm_from_here.showRunner import load_yaml
+
+        cfg_dir = os.path.join(os.path.dirname(__file__), "..", "configs")
+        cls.cfg = load_yaml(os.path.join(cfg_dir, "configv3.yaml"))
+
+    def test_improv_plugin_present_at_0_25(self) -> None:
+        plugin = next(p for p in self.cfg["plugins"] if p["name"] == "improv")
+        self.assertEqual(plugin["plugin"], "improvAgent")
+        self.assertEqual(plugin["class"], "ImprovAgent")
+        self.assertEqual(plugin["params"]["include_probability"], 0.25)
+        self.assertEqual(len(plugin["params"]["character_slots"]), 2)
+
+    def test_improv_audio_passes_through_on_empty(self) -> None:
+        pa = next(p for p in self.cfg["plugins"] if p["name"] == "improv_audio")
+        self.assertEqual(pa["plugin"], "segmentsToTimeline")
+        self.assertEqual(pa["params"]["timeline_variable"], "adlib_news_audio_timeline")
+        self.assertEqual(pa["params"]["segments_object"], "improv_segments")
+        self.assertEqual(pa["params"]["segment_type_map_variable"], "improv_segment_type_map")
+        self.assertEqual(pa["params"]["segment_type_key"], "speaker")
+        self.assertEqual(pa["params"]["segment_value_key"], "dialog")
+        self.assertTrue(pa["params"]["skip_if_no_segments"])
+
+    def test_story_audio_reads_improv_timeline(self) -> None:
+        sa = next(p for p in self.cfg["plugins"] if p["name"] == "story_audio")
+        self.assertEqual(sa["params"]["timeline_variable"], "improv_audio_timeline")
+
+    def test_splice_order_in_plugin_list(self) -> None:
+        names = [p["name"] for p in self.cfg["plugins"]]
+        idx = {n: names.index(n) for n in names}
+        self.assertLess(idx["adlib_news_audio"], idx["improv"])
+        self.assertLess(idx["improv"], idx["improv_audio"])
+        self.assertLess(idx["improv_audio"], idx["story_audio"])
 
 
 if __name__ == "__main__":

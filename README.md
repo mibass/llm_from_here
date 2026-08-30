@@ -119,7 +119,7 @@ Use the `openrouter:` prefix for OpenRouter slugs; use `ollama:…` for local Ol
 
 **Structured story/outro** — `story` and `outro` plugins use `promptToSegment` with Pydantic models (`StoryScript`, `OutroScript`) and segment mappers instead of inline JSON schema blocks. See [docs/llm_schema_inventory.md](docs/llm_schema_inventory.md).
 
-**Improv (experimental)** — [configs/improv_agent.yaml](configs/improv_agent.yaml) and [configs/improv_agent_smoke.yaml](configs/improv_agent_smoke.yaml) run the multi-model `improvAgent` plugin with an LLM foley judge that resolves SFX cues to real Freesound clips (plus a synthesized ambience fallback). See [docs/improv.md](docs/improv.md) for the pipeline, config reference, and artifact layout. Debug output: `improv_debug.json` in the run folder.
+**Improv (experimental)** — [configs/improv_agent.yaml](configs/improv_agent.yaml) and [configs/improv_agent_smoke.yaml](configs/improv_agent_smoke.yaml) run the multi-model `improvAgent` plugin with an LLM foley judge that resolves SFX cues to real Freesound clips (plus a synthesized ambience fallback). See [docs/improv.md](docs/improv.md) for the pipeline, config reference, and artifact layout. Debug output: `improv_debug.json` in the run folder. Also wired into the main show (`configv3.yaml`) as a mid-show interlude at `include_probability: 0.25`.
 
 **Diagnostics / evals** (manual, not CI):
 

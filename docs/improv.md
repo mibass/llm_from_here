@@ -6,6 +6,20 @@ replaces dialog cues with real sound effects fetched from Freesound. Everything
 renders down to plain WAV + WebVTT-style timeline HTML via the standard
 `segmentsToTimeline` / `audioTimeline` pipeline.
 
+## Integrated into the main show
+
+`configs/configv3.yaml` (the full episode pipeline) now runs an improv interlude as a
+**mid-show segment** between the adlib-news segment and the closing story. The
+`improv` plugin (`improvAgent`) is gated by `include_probability: 0.25`; on a per-run roll:
+
+- **Hit (25%)** — the agent generates a short scene (`improv_segments` +
+  `improv_segment_type_map`), and the `improv_audio` producer (`segmentsToTimeline`)
+  appends it to `adlib_news_audio_timeline`, storing under `improv_audio_timeline`,
+  which `story_audio` then reads.
+- **Miss (75%)** — `ImprovAgent` returns no segments; `improv_audio` has
+  `skip_if_no_segments: true` and passes the timeline through unchanged, so the
+  episode proceeds as if improv never ran.
+
 ## Pipeline
 
 `improvAgent.py` -> `improv_script` -> `segmentsToTimeline` (SFX fetch + TTS) -> `audioTimeline` (render)
@@ -56,6 +70,7 @@ uv run python evals/eval_improv_agent.py path/to/improv_debug.json      # LLM-as
 | `scene_establishment_instruction` | Custom rule replacing the default (default = *first two lines must orient a listener: where, what, who*) | default rule |
 | `foley_max_duration_sec` | Hard cap on any fetched SFX clip (fade-truncated downstream) | unset (no cap) |
 | `news_inspiration` | Feed the director one familiar, notable news story from the week as optional inspiration (`true` for the default prompt, or a dict with `search_prompt` / `search` / `model`). Open to any topic; the model picks based on the search results. Best-effort; a failed search is logged and setup continues without it. | unset (off) |
+| `include_probability` | Probability (0..1) this plugin runs at all. `0` skips the scene (returns empty segments/script); unset runs always. Mirrors `PromptToSegment`'s same-named gate when wiring improv into a larger show. | unset (always) |
 
 Per-character scenes can be tuned by `setup_system_message` (niche obsessions, the
 anti-cost-friction rule, multi-axis escalation). Structured-output schemas are tracked
