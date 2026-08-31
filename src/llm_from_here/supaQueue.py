@@ -13,10 +13,9 @@ CREATE TABLE IF NOT EXISTS supaqueue (
 
 It also requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or legacy SUPASET_URL / SUPASET_KEY).
 """
-from supabase import create_client
 import logging
 
-from llm_from_here.supabase_env import get_supabase_service_role_key, get_supabase_url
+from llm_from_here.supabase_env import create_supabase_client
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +23,7 @@ class SupaQueue:
     table_name = 'supaqueue'
 
     def __init__(self, queue_name, case_sensitive=True):
-        url = get_supabase_url()
-        key = get_supabase_service_role_key()
-        self.client = create_client(url, key)
+        self.client = create_supabase_client()
         self.queue_name = queue_name
         self.case_sensitive = case_sensitive
         self._cleanup_incomplete_sessions()
@@ -119,7 +116,5 @@ class SupaQueue:
     def __setstate__(self, state):
         self.queue_name = state['queue_name']
         self.case_sensitive = state['case_sensitive']
-        url = get_supabase_url()
-        key = get_supabase_service_role_key()
-        self.client = create_client(url, key)
+        self.client = create_supabase_client()
 
