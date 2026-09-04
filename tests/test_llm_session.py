@@ -13,9 +13,10 @@ class _Mini(BaseModel):
 
 
 class TestLlmSession(unittest.TestCase):
+    @patch("llm_from_here.llm_session._openrouter_provider")
     @patch("llm_from_here.llm_session.OpenRouterModel")
     @patch("llm_from_here.llm_session.Agent")
-    def setUp(self, mock_agent_cls, _mock_or_model):
+    def setUp(self, mock_agent_cls, _mock_or_model, _mock_provider):
         self.mock_agent_cls = mock_agent_cls
         self.mock_agent = MagicMock()
         mock_agent_cls.return_value = self.mock_agent
@@ -79,10 +80,11 @@ class TestLlmSession(unittest.TestCase):
         self.assertEqual(self.mock_agent.run_sync.call_count, 2)
         mock_sleep.assert_called_once()
 
+    @patch("llm_from_here.llm_session._openrouter_provider")
     @patch("llm_from_here.llm_session.OpenRouterModel")
     @patch("llm_from_here.llm_session.is_openrouter_free_mode", return_value=True)
     def test_resolve_agent_backend_free_mode_disables_required_tool_choice(
-        self, _mock_free, mock_or_model
+        self, _mock_free, mock_or_model, _mock_provider
     ):
         LlmSession._resolve_agent_backend(None)
         mock_or_model.assert_called_once()
