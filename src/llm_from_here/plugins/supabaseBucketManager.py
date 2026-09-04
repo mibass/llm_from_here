@@ -5,7 +5,7 @@ import os
 import logging
 import tempfile
 
-from llm_from_here.supabase_env import get_supabase_service_role_key, get_supabase_url
+from llm_from_here.supabase_env import create_supabase_client
 
 dotenv.load_dotenv()
 
@@ -17,10 +17,7 @@ class SupabaseBucketManager:
         self.params = params
         self.global_results = global_results
         self.plugin_instance_name = plugin_instance_name
-        
-        url = get_supabase_url()
-        key = get_supabase_service_role_key()
-        self.supabase = supabase.create_client(url, key)
+        self.supabase = create_supabase_client()
         
         # SUPABASE_STORAGE_BUCKET overrides YAML so .env matches the real bucket name.
         self.bucket_name = (
