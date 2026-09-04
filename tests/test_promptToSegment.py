@@ -12,10 +12,15 @@ class TestPromptToSegment(unittest.TestCase):
         self._agent_patch = patch(
             "llm_from_here.llm_session.Agent", return_value=MagicMock()
         )
+        self._provider_patch = patch(
+            "llm_from_here.llm_session._openrouter_provider", return_value=MagicMock()
+        )
         self._or_patch.start()
         self._agent_patch.start()
+        self._provider_patch.start()
 
     def tearDown(self):
+        self._provider_patch.stop()
         self._agent_patch.stop()
         self._or_patch.stop()
 

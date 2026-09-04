@@ -8,22 +8,18 @@ plugins:
     cache: False
     retries: 2
     params:
-      judge_model: openai/gpt-4o-mini
-      judge_system_message: >
-        You are an improv director. Score turns 1–4 on coherence, yes-and, character consistency.
-        Be lenient for smoke tests. pass_turn=true when the line is acceptable.
+      setup_model: openrouter:deepseek/deepseek-v4-flash
       setup_system_message: >
         Establish a short two-character improv scene in a contemporary setting with clear wants.
       target_turn_count: 3
-      max_regen_per_turn: 1
-      sfx_candidates: 3
-      judge_pass_threshold: 2
       character_slots:
-        - model: openai/gpt-4o-mini
-          tts_voice: nova
+        - model: openrouter:deepseek/deepseek-v4-flash
+          tts_voice: Puck
           system_message: >
             You are an improv performer. Yes-and your partner. One or two sentences per turn.
-        - model: openai/gpt-4o-mini
-          tts_voice: echo
+            Speak only as your character; no narrator.
+        - model: openrouter:deepseek/deepseek-v4-flash
+          tts_voice: Fenrir
           system_message: >
             You are an improv performer. Yes-and your partner. One or two sentences per turn.
+            Speak only as your character; no narrator.

@@ -32,9 +32,13 @@ class FreeSoundFetch:
         return results
 
     def download_sample(self, sound):
-        sanitized_filename = pathvalidate.sanitize_filename(sound.name)
-        temp_file_name = os.path.join(self.out_dir, f"{sanitized_filename}.wav")
-        sound.retrieve_preview(self.out_dir, name=temp_file_name)
+        sanitized_filename = pathvalidate.sanitize_filename(str(sound.name))
+        # Freesound previews are mp3. Pass a bare filename (no directory): retrieve_preview
+        # joins it onto out_dir and ensures the .mp3 extension. Passing a full path here
+        # doubles the directory and mislabels the extension, breaking the download.
+        file_name = f"{sanitized_filename}.mp3"
+        sound.retrieve_preview(self.out_dir, name=file_name)
+        temp_file_name = os.path.join(self.out_dir, file_name)
         self.temp_files.append(temp_file_name)
 
     def search_and_download_top_samples(self, query, num_samples=1, filter_params=None):

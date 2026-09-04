@@ -410,6 +410,29 @@ class TestSegmentsToTimeline(unittest.TestCase):
         mock_audio_segment.silent.assert_called_once_with(duration=800)
         silence.export.assert_called_once()
 
+    @patch("llm_from_here.plugins.segmentsToTimeline.AudioSegment")
+    @patch("llm_from_here.plugins.showTTS.ShowTextToSpeech")
+    def test_skip_if_no_segments_passes_timeline_through(self, _mock_show_tts, _mock_audio_segment):
+        """Improv spacer: empty improv_segments (roll miss) must leave timeline unchanged."""
+        existing = audioTimeline.AudioTimeline()
+        params = {
+            **self.mock_params,
+            "timeline_variable": "adlib_news_audio_timeline",
+            "segments_object": "improv_segments",
+            "skip_if_no_segments": True,
+        }
+        global_results = {
+            "output_folder": tempfile.mkdtemp(),
+            "adlib_news_audio_timeline": existing,
+            "improv_segments": [],
+        }
+        try:
+            stt = SegmentsToTimeline(params, global_results, "improv_audio")
+            result = stt.execute()
+            self.assertIs(result["timeline"], existing)
+        finally:
+            shutil.rmtree(global_results["output_folder"], ignore_errors=True)
+
 
 if __name__ == '__main__':
     unittest.main()

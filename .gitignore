@@ -15,6 +15,9 @@ outputs/*
 tests/*.html
 *.pickle
 
+# Local scratch artifacts (debug json, eval outputs, working notes)
+scratch/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

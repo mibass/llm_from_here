@@ -1,4 +1,4 @@
-show_name: ImprovAgentShow
+show_name: ImprovFoleySample
 global_parameters: {}
 
 plugins:
@@ -34,7 +34,12 @@ plugins:
         - Give the Game multiple escalation vectors, not just scale: a wrong belief that
         gets more elaborate, a reinterpretation of reality, a moral or authority inversion,
         a commitment that compounds. Room to heighten in kind, not only in size.
-      target_turn_count: 20
+      target_turn_count: 16
+      scene_establishment: true
+      foley_max_duration_sec: 12
+      # Feed the director one quirky story from the week as optional inspiration.
+      # Set to `true` (default prompt) or a dict with a custom `search_prompt`.
+      news_inspiration: true
       character_slots:
         - model: openrouter:deepseek/deepseek-v4-flash
           tts_voice: Puck

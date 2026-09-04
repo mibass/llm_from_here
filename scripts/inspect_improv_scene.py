@@ -53,15 +53,18 @@ def main() -> int:
     for row in data.get("audit_log") or []:
         phase = row.get("phase", "?")
         if phase == "turn":
+            cues = row.get("sfx_cues") or []
+            cue_str = f" sfx_cues={cues}" if cues else ""
+            sd = row.get("stage_direction") or ""
+            sd_str = f" [dir: {sd}]" if sd else ""
             print(
                 f"  turn {row.get('turn_index')} slot {row.get('slot')} "
-                f"{row.get('character')!r} attempt {row.get('attempt')}: "
-                f"{(row.get('judgement') or {}).get('pass_turn')}"
+                f"{row.get('character')!r}:{sd_str} {row.get('dialog')!r}{cue_str}"
             )
         elif phase == "sfx":
             print(
-                f"  sfx cue={row.get('cue')!r} idx={row.get('chosen_index')} "
-                f"id={row.get('freesound_id')}"
+                f"  sfx turn={row.get('turn_index')} cue={row.get('cue')!r} "
+                f"query={row.get('query')!r}"
             )
         else:
             print(f"  {row}")

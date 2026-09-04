@@ -51,5 +51,7 @@ jobs:
 
       - name: Dependency security audit
         run: |
+          # PYSEC-2026-2132 (click <8.3.3): latest gTTS (2.5.4) requires click<8.2,>=7.1, so it cannot be bumped here.
           uv run pip-audit \
-            --ignore-vuln PYSEC-2022-42969
+            --ignore-vuln PYSEC-2022-42969 \
+            --ignore-vuln PYSEC-2026-2132

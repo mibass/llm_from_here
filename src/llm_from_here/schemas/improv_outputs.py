@@ -1,4 +1,4 @@
-"""Structured outputs for ImprovAgent (scene setup, judging, SFX selection)."""
+"""Structured outputs for ImprovAgent (scene setup, performer turns, SFX cues)."""
 
 from __future__ import annotations
 
@@ -33,6 +33,34 @@ class SceneSetup(BaseModel):
     @field_validator("sfx_palette", mode="before")
     @classmethod
     def _strip_palette_strings(cls, v: object) -> object:
+        if isinstance(v, list):
+            return [str(x).strip() for x in v if str(x).strip()]
+        return v
+
+
+class ImprovTurn(BaseModel):
+    """One performer turn: spoken line plus optional non-audio note and SFX cues."""
+
+    dialog: str = Field(
+        ...,
+        min_length=1,
+        description="Spoken words only. No speaker-name prefix, no bracketed cues.",
+    )
+    stage_direction: str = Field(
+        default="",
+        description="Optional short acting note; never spoken aloud.",
+    )
+    sfx_cues: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Zero to two concrete, audible sound-effect search queries "
+            "(e.g. 'coffee machine steam', 'doorbell chime'). Not emotions or gestures."
+        ),
+    )
+
+    @field_validator("sfx_cues", mode="before")
+    @classmethod
+    def _clean_cues(cls, v: object) -> object:
         if isinstance(v, list):
             return [str(x).strip() for x in v if str(x).strip()]
         return v

@@ -1,8 +1,12 @@
 import llm_from_here.plugins.showTTS as showTTS
+import json
 import os
 import re
 import shutil
 import tempfile
+from pathlib import Path
+
+import appdirs
 
 from llm_from_here.gemini_tts import (
     LONGFORM_TTS_CHUNK_PAUSE_MS,
@@ -20,6 +24,7 @@ from pydub import AudioSegment
 
 from llm_from_here.plugins.applause import generate_applause
 import llm_from_here.plugins.freesoundfetch as freesoundfetch
+from llm_from_here.plugins.foleyAgent import FoleyAgent
 import llm_from_here.plugins.ytfetch as ytfetch
 import llm_from_here.plugins.audioTimeline as audioTimeline
 
@@ -111,20 +116,231 @@ class SegmentsToTimeline:
         if match:
             music_type = match.group(1)
         else:
-            music_type = text
+            # Strip a leading bracket label such as "[BACKGROUND: ...]" or "[SFX: ...]"
+            # so the Freesound query is the inner text, not the decorated cue.
+            label_match = re.fullmatch(r"\s*\[[A-Za-z ]+:?\s*(.*?)\]\s*", text)
+            music_type = label_match.group(1) if label_match else text
 
         # extract the dir from output_file
         output_dir = os.path.dirname(output_file)
         self.freesound_fetch.out_dir = output_dir
-        query = f"{music_type} {additional_query_text}"
+        query = f"{music_type} {additional_query_text}".strip()
         logger.info(
             f"Retreiving freesound music with query: {query}, duration: {duration_min_sec} to {duration_max_sec}"
         )
-        self.freesound_fetch.search_and_download_top_samples(
-            query, 1, {"filter": f"duration:[{duration_min_sec} TO {duration_max_sec}]"}
+        before = len(self.freesound_fetch.temp_files)
+        # Try the duration-constrained search first, then fall back to an unconstrained
+        # search so a slightly-too-specific duration filter doesn't drop the segment.
+        attempts = [
+            {"filter": f"duration:[{duration_min_sec} TO {duration_max_sec}]"},
+            {},
+        ]
+        for attempt in attempts:
+            try:
+                self.freesound_fetch.search_and_download_top_samples(query, 1, attempt)
+            except Exception as e:
+                logger.warning(
+                    "Freesound search/download failed for query %r; skipping segment: %s",
+                    query,
+                    e,
+                )
+                return None
+            if len(self.freesound_fetch.temp_files) > before:
+                shutil.move(self.freesound_fetch.temp_files[-1], output_file)
+                return True
+        logger.warning("No freesound results for query %r; skipping segment.", query)
+        return None
+
+    def _foley_cue_query(self, text: str, additional_query_text: str = "") -> str:
+        """Extract a bare SFX search query, stripping any bracket label."""
+        label_match = re.fullmatch(r"\s*\[[A-Za-z ]+:?\s*(.*?)\]\s*", text)
+        cue = label_match.group(1) if label_match else text
+        if additional_query_text:
+            cue = f"{cue} {additional_query_text}".strip()
+        return cue.strip()
+
+    def _foley_agent(self, cache_dir: str | None = None) -> FoleyAgent:
+        if getattr(self, "_foley_agent_obj", None) is None:
+            self._foley_agent_obj = FoleyAgent(cache_dir=cache_dir)
+        return self._foley_agent_obj
+
+    def _record_foley_audit(self, cue: str, result: dict) -> None:
+        out_folder = self.global_results.get("output_folder")
+        if not out_folder:
+            return
+        path = os.path.join(out_folder, "foley_audit.json")
+        try:
+            rows: list = []
+            if os.path.isfile(path):
+                with open(path, encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, list):
+                        rows = loaded
+            rows.append(
+                {
+                    "cue": cue,
+                    "cue_type": result.get("cue_type", "sfx"),
+                    "status": result.get("status"),
+                    "reason": result.get("reason"),
+                    "selected": result.get("selected"),
+                    # resolve() returns attempt rows at the top level of the result dict.
+                    "attempts": result.get("attempts"),
+                }
+            )
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(rows, f, indent=2, default=str)
+        except OSError as e:
+            logger.error("Could not write foley_audit.json: %s", e)
+
+    def music_generator_foley_agent(
+        self,
+        text,
+        output_file,
+        duration_min_sec=1,
+        duration_max_sec=60,
+        additional_query_text="",
+        model=None,
+        cache_dir=None,
+        foley_max_duration_sec=None,
+    ):
+        """LLM-in-the-loop SFX fetch via FoleyAgent; silence pad preserves pacing on miss."""
+        cue = self._foley_cue_query(text, additional_query_text)
+        if not cue:
+            logger.warning("Empty foley cue; writing silence pad.")
+            self.silence_generator("duration 700", output_file)
+            return True
+        result = self._foley_agent(cache_dir).resolve(
+            intent=cue,
+            duration_min_sec=int(duration_min_sec),
+            duration_max_sec=int(duration_max_sec),
+            model_slug=model,
+            download_dir=os.path.dirname(output_file) or None,
         )
-        shutil.move(self.freesound_fetch.temp_files[-1], output_file)
+        self._record_foley_audit(cue, result)
+        status = result.get("status")
+        file_path = result.get("file")
+        if status in ("hit", "cached") and file_path and os.path.isfile(file_path):
+            shutil.copyfile(file_path, output_file)
+            foley_max_duration_sec = int(foley_max_duration_sec or 0)
+            if foley_max_duration_sec > 0:
+                seg = AudioSegment.from_file(output_file)
+                cap_ms = foley_max_duration_sec * 1000
+                if len(seg) > cap_ms:
+                    fade_ms = min(200, len(seg))
+                    seg[:cap_ms].fade_out(fade_ms).export(output_file, format="wav")
+                    logger.info(
+                        "Truncated foley %r to %ds cap (was %.1fs).",
+                        cue,
+                        foley_max_duration_sec,
+                        len(seg) / 1000.0,
+                    )
+            logger.info(
+                "Foley %s for %r -> %s", status, cue, result.get("selected") or {}
+            )
+            return True
+        logger.warning(
+            "Foley miss for %r (%s); writing silence pad.",
+            cue,
+            result.get("reason", status),
+        )
+        self.silence_generator("duration 700", output_file)
         return True
+
+    def _synthesize_ambience_bed(self, output_file: str, duration_sec: int = 45) -> bool:
+        """Deterministic fallback bed: soft brown-noise room tone with a low hum."""
+        import numpy as np
+
+        rate = 44100
+        n_samples = int(rate * duration_sec)
+        rng = np.random.default_rng(0)
+        white = rng.standard_normal(n_samples)
+        brown = np.cumsum(white * 0.02)
+        brown = brown - np.mean(brown)
+        peak = np.max(np.abs(brown)) or 1.0
+        brown = brown / peak * 0.28
+        t = np.arange(n_samples) / rate
+        hum = 0.035 * np.sin(2 * np.pi * 120 * t)
+        hum += 0.018 * np.sin(2 * np.pi * 180 * t)
+        mix = brown + hum
+        fade = int(rate * 2)
+        envelope = np.ones(n_samples)
+        envelope[:fade] = np.linspace(0.0, 1.0, fade)
+        envelope[-fade:] = np.linspace(1.0, 0.0, fade)
+        pcm = (mix * envelope * 32767).astype(np.int16)
+        seg = AudioSegment(
+            data=pcm.tobytes(), sample_width=2, frame_rate=rate, channels=1
+        )
+        seg.export(output_file, format="wav")
+        logger.info(
+            "Synthesized ambience bed fallback to %s (%.0fs)",
+            output_file,
+            duration_sec,
+        )
+        return True
+
+    def music_generator_foley_ambience(
+        self,
+        text,
+        output_file,
+        duration_min_sec=30,
+        duration_max_sec=200,
+        additional_query_text="",
+        model=None,
+        cache_dir=None,
+        ambience_fallback=True,
+    ):
+        """Sustained background/ambience bed via the FoleyAgent judge (cached).
+
+        On total miss, falls back to a synthesized soft room-tone bed so the
+        background is never silently dropped. ``ambience_fallback=False`` skips
+        the segment instead (returns None).
+        """
+        cue = self._foley_cue_query(text, additional_query_text)
+        if not cue:
+            logger.warning("Empty ambience cue; skipping background segment.")
+            return None
+        if cache_dir:
+            amb_root = Path(cache_dir) / "ambience"
+        else:
+            amb_root = (
+                Path(appdirs.user_cache_dir(appname="llm_from_here"))
+                / "foley"
+                / "ambience"
+            )
+        agent = FoleyAgent(cache_dir=amb_root)
+        result = agent.resolve(
+            intent=cue,
+            duration_min_sec=int(duration_min_sec),
+            duration_max_sec=int(duration_max_sec),
+            model_slug=model,
+            download_dir=os.path.dirname(output_file) or None,
+            sustained=True,
+        )
+        self._record_foley_audit(cue, {**result, "cue_type": "ambience"})
+        status = result.get("status")
+        file_path = result.get("file")
+        if status in ("hit", "cached") and file_path and os.path.isfile(file_path):
+            shutil.copyfile(file_path, output_file)
+            logger.info(
+                "Ambience %s for %r -> %s", status, cue, result.get("selected") or {}
+            )
+            return True
+        reason = result.get("reason", status)
+        if ambience_fallback:
+            self._record_foley_audit(
+                cue,
+                {
+                    "status": "synthesized",
+                    "cue_type": "ambience",
+                    "reason": f"freesound miss ({reason}); synthesized fallback bed",
+                    "selected": None,
+                },
+            )
+            return self._synthesize_ambience_bed(output_file)
+        logger.warning(
+            "Ambience miss for %r (%s); skipping background segment.", cue, reason
+        )
+        return None
 
     def music_generator_openrouter(self, text, output_file, **kwargs):
         music_cue_profile = kwargs.pop("music_cue_profile", None)

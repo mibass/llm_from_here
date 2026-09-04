@@ -16,8 +16,8 @@ def _truthy(name: str, default: str = "0") -> bool:
     return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _integration_openrouter_use_free_models():
+@pytest.fixture(autouse=True)
+def _integration_openrouter_use_free_models(monkeypatch):
     """
     After test modules run dotenv.load_dotenv(), prefer OpenRouter free-tier chat.
 
@@ -25,13 +25,14 @@ def _integration_openrouter_use_free_models():
     structured output defaults to tool mode, and slow TTS uses gTTS.
 
     Opt out with LLMFH_INTEGRATION_USE_FREE_OPENROUTER=0 to keep .env OPENROUTER_* as-is.
+
+    Function-scoped + monkeypatch so the environment is restored after each test;
+    a session-scoped fixture would leak free-mode into unrelated unit tests.
     """
     if not _truthy("LLMFH_INTEGRATION_USE_FREE_OPENROUTER", "1"):
-        yield
         return
-    os.environ["LLMFH_OPENROUTER_FREE_MODE"] = "1"
-    os.environ.pop("OPENROUTER_MODEL", None)
-    yield
+    monkeypatch.setenv("LLMFH_OPENROUTER_FREE_MODE", "1")
+    monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
 
 
 @pytest.fixture

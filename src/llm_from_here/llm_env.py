@@ -90,7 +90,7 @@ def get_openrouter_music_model() -> str:
     )
 
 
-def get_structured_output_mode() -> StructuredOutputMode:
+def get_structured_output_mode(model_slug: str | None = None) -> StructuredOutputMode:
     """
     LLMFH_STRUCTURED_OUTPUT_MODE=native|tool.
     In free mode, default to tool when unset (native is unreliable on openrouter/free).
@@ -101,7 +101,10 @@ def get_structured_output_mode() -> StructuredOutputMode:
         return raw  # type: ignore[return-value]
     if is_openrouter_free_mode():
         return "tool"
-    if "deepseek" in get_openrouter_chat_model().lower():
+    slug = (model_slug or "").strip()
+    if not slug:
+        slug = get_openrouter_chat_model()
+    if "deepseek" in slug.lower():
         return "tool"
     return "native"
 
