@@ -40,7 +40,10 @@ dotenv.load_dotenv()
 # A stalled OpenRouter SSE stream ("200 OK" headers, then the body never finishes)
 # previously hung `run_sync` for tens of minutes. We inject a bounded-timeout httpx
 # client into every OpenRouterModel so that hang raises a retriable error instead.
-_OPENROUTER_HTTP_CLIENT: httpx.AsyncClient | None = None
+# NOTE: the client must be per-provider, NOT a process-global. Agents run `run_sync`
+# on separate short-lived event loops (and concurrently across threads); an httpcore
+# pool shared across loops wakes the wrong loop and silently deadlocks the caller
+# (observed 2026-09-11 as show_runner parking forever in kevent with zero sockets).
 
 
 def openrouter_read_timeout_s() -> float:
@@ -54,18 +57,16 @@ def openrouter_read_timeout_s() -> float:
 
 
 def _openrouter_provider() -> OpenRouterProvider:
-    """OpenRouterProvider backed by a lazily-created bounded-timeout httpx client."""
-    global _OPENROUTER_HTTP_CLIENT
-    if _OPENROUTER_HTTP_CLIENT is None:
-        _OPENROUTER_HTTP_CLIENT = httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=10.0,
-                read=openrouter_read_timeout_s(),
-                write=30.0,
-                pool=10.0,
-            )
+    """OpenRouterProvider backed by a bounded-timeout httpx client (per provider)."""
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            connect=10.0,
+            read=openrouter_read_timeout_s(),
+            write=30.0,
+            pool=10.0,
         )
-    return OpenRouterProvider(http_client=_OPENROUTER_HTTP_CLIENT)
+    )
+    return OpenRouterProvider(http_client=client)
 
 
 # Transient provider/network errors worth one bounded retry at the structured-call
