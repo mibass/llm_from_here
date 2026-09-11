@@ -15,12 +15,18 @@ LEGACY_ROOT_LOG_BASENAME = "showRunner.log"
 AGENT_TRACE_LOG_BASENAME = "agent_trace.log"
 
 
+def _configured_log_level() -> str:
+    """Root level override; ``LLMFH_LOG_LEVEL=DEBUG`` surfaces httpx/asyncio internals."""
+    name = os.getenv("LLMFH_LOG_LEVEL", "").strip().upper()
+    return name if hasattr(logging, name or "") else "INFO"
+
+
 def bootstrap_showrunner_logging() -> None:
     """Configure root level/formatters without a repo-root shared log file."""
     root = logging.getLogger()
     if getattr(root, "_llmfh_logging_bootstrapped", False):
         return
-    root.setLevel(logging.INFO)
+    root.setLevel(_configured_log_level())
     fmt = logging.Formatter("%(asctime)s:%(name)s:%(levelname)s:%(message)s")
     if os.getenv("LLMFH_SHOWRUNNER_LOG_STDOUT", "").strip().lower() in ("1", "true", "yes", "on"):
         if not any(
@@ -59,7 +65,7 @@ def configure_show_run_logging(output_folder: str) -> None:
     main_path = os.path.join(output_folder, MAIN_RUN_LOG_BASENAME)
     fh = logging.FileHandler(main_path, encoding="utf-8")
     fh.setFormatter(fmt)
-    fh.setLevel(logging.INFO)
+    fh.setLevel(_configured_log_level())
     root.addHandler(fh)
 
     agent_logger = logging.getLogger(AGENT_TRACE_LOGGER_NAME)
