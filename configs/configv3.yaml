@@ -172,7 +172,7 @@ plugins:
     params:
       chat_app_variable: intro_chat_app
       convert_script_to_segments: false
-      include_probability: 0.25
+      include_probability: 0.35
       web_research:
         track_used_subjects: true
         used_subjects_supaset_name: radiohead_songs
@@ -262,7 +262,7 @@ plugins:
     params:
       chat_app_variable: intro_chat_app
       convert_script_to_segments: false
-      include_probability: 0.33
+      include_probability: 0.43
       web_research:
         track_used_subjects: true
         used_subjects_supaset_name: adlib_news_bundles
@@ -435,7 +435,7 @@ plugins:
     cache: True
     retries: 3
     params:
-      include_probability: 0.25
+      include_probability: 0.35
       setup_model: openrouter:deepseek/deepseek-v4-flash
       setup_system_message: >
         You are a long-form improv director. Establish a complete scene setup: a grounded
