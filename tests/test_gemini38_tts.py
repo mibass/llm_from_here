@@ -201,3 +201,64 @@ def test_showtts_speak_longform_passes_speech_metadata():
         call = fake_client.audio.speech.create.call_args
         assert call.kwargs.get("extra_body") == {"speech_metadata": {"style": "warm"}}
         assert call.kwargs.get("model") == "google/gemini-3.8-flash-tts"
+
+
+def test_showtts_speak_multi_speaker_sends_turn_list():
+    import io
+    import pydub
+
+    from llm_from_here.plugins import showTTS as showtts_mod
+
+    tts = showtts_mod.ShowTextToSpeech()
+    fake_client = MagicMock()
+    tts._openrouter_client = fake_client
+
+    silence = pydub.AudioSegment.silent(duration=50)
+    pcm_bytes = (np.zeros(1200, dtype=np.int16)).tobytes()
+    fake_resp = MagicMock()
+
+    def _stream_to_file(path):
+        with open(path, "wb") as f:
+            f.write(pcm_bytes)
+
+    fake_resp.stream_to_file.side_effect = _stream_to_file
+    fake_client.audio.speech.create.return_value = fake_resp
+
+    turns = [
+        {"text": "One <sigh>.", "voice": "Puck"},
+        {"text": "Two |hm|.", "voice": "Fenrir", "instructions": "dry"},
+    ]
+    out = os.path.join(tempfile.mkdtemp(), "block.wav")
+    tts.speak_multi_speaker(turns, out, model="google/gemini-3.8-flash-tts")
+
+    call = fake_client.audio.speech.create.call_args
+    sent = call.kwargs.get("input")
+    assert sent == turns
+    assert call.kwargs.get("model") == "google/gemini-3.8-flash-tts"
+    assert call.kwargs.get("voice") == "Puck"
+    assert call.kwargs.get("response_format") == "pcm"
+    assert os.path.exists(out)
+
+
+def test_improv_audio_block_places_existing_wav():
+    import pydub
+
+    from llm_from_here.plugins.segmentsToTimeline import SegmentsToTimeline
+
+    params = {
+        "segments_object": "story_segments",
+        "segment_type_key": "speaker",
+        "segment_value_key": "dialog",
+        "segment_type_map": {},
+        "segment_transition_map": [],
+    }
+    with tempfile.TemporaryDirectory() as temp_dir:
+        src = os.path.join(temp_dir, "block_src.wav")
+        pydub.AudioSegment.silent(duration=40).export(src, format="wav")
+        stt = SegmentsToTimeline(
+            params, {"output_folder": temp_dir}, "test_block"
+        )
+        out = os.path.join(temp_dir, "block_out.wav")
+        res = stt.improv_audio_block(src, out)
+        assert res == {}
+        assert os.path.exists(out)

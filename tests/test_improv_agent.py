@@ -414,3 +414,124 @@ class TestImprovProdSpliceConfig(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@patch("llm_from_here.plugins.improvAgent.LlmSession")
+@patch("llm_from_here.plugins.improvAgent.FreeSoundFetch")
+class TestMultiSpeakerImprovRender(unittest.TestCase):
+    """Gemini 3.8 turn-list coalescing of improv dialog turns."""
+
+    @classmethod
+    def setUpClass(cls):
+        from llm_from_here.showRunner import load_yaml
+
+        cfg_dir = os.path.join(os.path.dirname(__file__), "..", "configs")
+        cls.cfg = load_yaml(os.path.join(cfg_dir, "configv3.yaml"))
+
+    def _mk_agent(self, temp_dir, multi=True):
+        from unittest.mock import MagicMock
+
+        from llm_from_here.plugins.improvAgent import ImprovAgent
+
+        params = {
+            "character_slots": [
+                {"model": "openrouter:deepseek/deepseek-v4-flash", "tts_voice": "Puck"},
+                {"model": "openrouter:deepseek/deepseek-v4-flash", "tts_voice": "Fenrir"},
+            ],
+            "target_turn_count": 4,
+            "multi_speaker_render": multi,
+        }
+        agent = ImprovAgent(params, {"output_folder": temp_dir}, "test_ms")
+        agent.included = True
+        agent.show_tts = MagicMock()
+        return agent
+
+    def test_block_coalescing_keeps_sfx_positions(self, *_mocks):
+        import tempfile
+        import pydub
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            agent = self._mk_agent(temp_dir)
+            agent.output_folder = temp_dir
+
+            def _write_runner(turns, path):
+                pydub.AudioSegment.silent(duration=40).export(path, format="wav")
+
+            agent.show_tts.speak_multi_speaker.side_effect = _write_runner
+
+            blocks_input = [
+                {"speaker": "character 1", "dialog": "Line one |hm|.", "character_name": "A"},
+                {"speaker": "character 2", "dialog": "Line two.", "character_name": "B"},
+                {"speaker": "sound effect", "dialog": "dog bark", "character_name": None},
+                {"speaker": "character 1", "dialog": "Line three.", "character_name": "A"},
+            ]
+
+            from llm_from_here.plugins.improvAgent import ImprovAgent
+
+            segs = ImprovAgent._render_dialog_blocks(agent, blocks_input)
+            kinds = [str(s.get("speaker")) for s in segs]
+            self.assertEqual(
+                kinds,
+                [
+                    "improv_dialog_block",
+                    "sound effect",
+                    "improv_dialog_block",
+                ],
+            )
+            block_path = segs[0]["dialog"]
+            self.assertTrue(os.path.exists(block_path))
+            two_calls = agent.show_tts.speak_multi_speaker.call_count
+            self.assertEqual(two_calls, 2)
+            first_turns = agent.show_tts.speak_multi_speaker.call_args_list[0][0][0]
+            self.assertEqual(first_turns[0]["voice"], "Puck")
+            self.assertEqual(first_turns[1]["voice"], "Fenrir")
+
+    def test_render_failure_falls_back_to_per_turn(self, *_mocks):
+        import tempfile
+
+        from llm_from_here.plugins.improvAgent import ImprovAgent
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            agent = self._mk_agent(temp_dir)
+            agent.output_folder = temp_dir
+
+            def _fail(turns, path):
+                raise RuntimeError("no provider")
+
+            agent.show_tts.speak_multi_speaker.side_effect = _fail
+            blocks_input = [
+                {"speaker": "character 1", "dialog": "A.", "character_name": "A"},
+                {"speaker": "character 2", "dialog": "B.", "character_name": "B"},
+            ]
+            segs = ImprovAgent._render_dialog_blocks(agent, blocks_input)
+            self.assertEqual([str(s["speaker"]) for s in segs], ["character 1", "character 2"])
+
+    def test_turn_prompt_38_rules_gated_on_flag(self, *_mocks):
+        import tempfile
+
+        from llm_from_here.plugins.improvAgent import ImprovAgent, SceneSetup
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            scene = _make_scene()
+            on = self._mk_agent(temp_dir, multi=True)
+            on.scene = scene
+            p38 = on._turn_prompt(scene, "ADA", [], 0, False)
+            self.assertIn("COMEDY AND PACING OVERRIDES", p38)
+            self.assertIn("verbatim podcast cadence", p38)
+            self.assertNotIn("two to four sentences", p38)
+
+            off = self._mk_agent(temp_dir, multi=False)
+            off.scene = scene
+            p31 = off._turn_prompt(scene, "ADA", [], 0, False)
+            self.assertIn("two to four sentences", p31)
+            self.assertNotIn("COMEDY AND PACING OVERRIDES", p31)
+
+
+class TestImprov38DialogCleanup(unittest.TestCase):
+    """<vocal events> and |pipes| survive cleanup in 3.8 mode."""
+
+    def test_keeps_vocal_events_and_pipes(self):
+        from llm_from_here.plugins.improvAgent import _clean_dialog_38
+
+        text = 'ADA: "Wait... <sigh> |okay| that is -- wow."'
+        self.assertEqual(_clean_dialog_38(text, "ADA"), "Wait... <sigh> |okay| that is -- wow.")

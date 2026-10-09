@@ -129,6 +129,45 @@ class ShowTextToSpeech:
             prompt, output_file, voice=voice, model=model, speech_metadata=speech_metadata
         )
 
+    def speak_multi_speaker(self, turns, output_file, model=None):
+        """Render a multi-speaker scene with one Gemini 3.8 turn-list request.
+
+        ``turns`` is a list of dicts with ``text`` and ``voice`` keys (and optional
+        ``instructions``). Requires a Gemini 3.8 TTS model that supports
+        multi-speaker input; returns the exported AudioSegment.
+        """
+        client = self._get_openrouter_client()
+        use_model = model or self.tts_model_name
+        response_format = get_openrouter_tts_response_format(use_model)
+        top_voice = turns[0].get("voice") if turns else None
+
+        response = client.audio.speech.create(
+            model=use_model,
+            voice=top_voice or self.tts_voice,
+            input=turns,
+            response_format=response_format,
+        )
+
+        suffix = ".pcm" if response_format == "pcm" else ".mp3"
+        fd, tmp_audio = tempfile.mkstemp(suffix=suffix, prefix="llmfh_multispeaker_")
+        os.close(fd)
+        try:
+            response.stream_to_file(tmp_audio)
+            audio = _segment_from_openrouter_speech_file(
+                tmp_audio, response_format=response_format
+            )
+            audio.export(output_file, format="wav")
+            logger.info(
+                "Multi-speaker TTS rendered %s turn(s) from %s", len(turns), use_model
+            )
+            return audio
+        finally:
+            try:
+                os.remove(tmp_audio)
+            except OSError:
+                pass
+        self.audio_file = output_file
+
     def speak(self, text, output_file, fast=False, voice=None, model=None):
         if fast or is_openrouter_free_mode():
             if is_openrouter_free_mode() and not fast:
