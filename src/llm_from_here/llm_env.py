@@ -66,7 +66,7 @@ def get_openrouter_chat_model() -> str:
 def get_openrouter_tts_model() -> str:
     return (
         os.getenv("OPENROUTER_TTS_MODEL", "").strip()
-        or "google/gemini-3.1-flash-tts-preview"
+        or "google/gemini-3.8-flash-tts"
     )
 
 

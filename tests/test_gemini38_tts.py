@@ -151,7 +151,11 @@ def test_gemini_longform_tts_legacy_schema_unchanged_for_31():
 
         stt.show_tts.speak_longform.side_effect = _write_silent_wav
         out = os.path.join(temp_dir, "story.wav")
-        stt.gemini_longform_TTS("[positive] Story block text here.", out)
+        stt.gemini_longform_TTS(
+            "[positive] Story block text here.",
+            out,
+            tts_model="google/gemini-3.1-flash-tts-preview",
+        )
         stt.show_tts.speak_longform.assert_called_once()
         kwargs = stt.show_tts.speak_longform.call_args[1]
         assert "speech_metadata" not in kwargs or kwargs["speech_metadata"] is None
@@ -173,8 +177,6 @@ def test_showtts_speak_longform_passes_speech_metadata():
 
         silence = pydub.AudioSegment.silent(duration=50)
         silence.export(out, format="wav")
-        import io
-
         import io
 
         mp3_buf = io.BytesIO()
