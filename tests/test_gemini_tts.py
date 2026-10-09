@@ -182,7 +182,11 @@ def test_gemini_longform_tts_uses_speak_longform():
 
         stt.show_tts.speak_longform.side_effect = _write_silent_wav
         out = os.path.join(temp_dir, "story.wav")
-        stt.gemini_longform_TTS("[positive] Story block text here.", out)
+        stt.gemini_longform_TTS(
+            "[positive] Story block text here.",
+            out,
+            tts_model="google/gemini-3.1-flash-tts-preview",
+        )
         stt.show_tts.speak_longform.assert_called_once()
         prompt = stt.show_tts.speak_longform.call_args[0][0]
         assert "Transcript:" in prompt
