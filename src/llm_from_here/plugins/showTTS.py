@@ -12,6 +12,7 @@ import tempfile
 import dotenv
 import logging
 import openai
+from typing import Any
 
 from llm_from_here.llm_env import (
     build_openrouter_client,
@@ -116,10 +117,17 @@ class ShowTextToSpeech:
         self.tts_voice = get_openrouter_tts_voice()
         self._openrouter_client: openai.OpenAI | None = None
 
-    def speak_longform(self, prompt, output_file, voice=None, model=None):
-        """Send a full Gemini advanced TTS prompt without narrator text filtering."""
+    def speak_longform(self, prompt, output_file, voice=None, model=None, speech_metadata=None):
+        """Send a full Gemini TTS prompt/request without narrator text filtering.
+
+        When ``speech_metadata`` is provided (Gemini 3.8 structured schema),
+        ``prompt`` is the verbatim transcript and the style is passed as a
+        provider-specific ``speech_metadata`` option.
+        """
         logger.info("Using long-form Gemini TTS (prompt length %s chars)", len(prompt))
-        self._speak_openrouter_tts(prompt, output_file, voice=voice, model=model)
+        self._speak_openrouter_tts(
+            prompt, output_file, voice=voice, model=model, speech_metadata=speech_metadata
+        )
 
     def speak(self, text, output_file, fast=False, voice=None, model=None):
         if fast or is_openrouter_free_mode():
@@ -156,18 +164,23 @@ class ShowTextToSpeech:
             self._openrouter_client = build_openrouter_client()
         return self._openrouter_client
 
-    def _speak_openrouter_tts(self, text, output_file, voice=None, model=None):
+    def _speak_openrouter_tts(self, text, output_file, voice=None, model=None, speech_metadata=None):
         client = self._get_openrouter_client()
 
         use_model = model or self.tts_model_name
         use_voice = voice or self.tts_voice
         response_format = get_openrouter_tts_response_format(use_model)
 
+        extra_body: dict[str, Any] = {}
+        if speech_metadata is not None:
+            extra_body["speech_metadata"] = speech_metadata
+
         response = client.audio.speech.create(
             model=use_model,
             voice=use_voice,
             input=text,
             response_format=response_format,
+            extra_body=extra_body,
         )
 
         suffix = ".pcm" if response_format == "pcm" else ".mp3"

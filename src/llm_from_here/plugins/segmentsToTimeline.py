@@ -10,11 +10,17 @@ import appdirs
 
 from llm_from_here.gemini_tts import (
     LONGFORM_TTS_CHUNK_PAUSE_MS,
+    build_gemini38_tts_request,
     build_longform_tts_prompt,
+    is_gemini38_tts_slug,
     prepare_narrator_tts_text,
     split_longform_transcript,
 )
-from llm_from_here.llm_env import is_lyria_enabled, is_openrouter_free_mode
+from llm_from_here.llm_env import (
+    get_openrouter_tts_model,
+    is_lyria_enabled,
+    is_openrouter_free_mode,
+)
 from llm_from_here.openrouter_music import (
     generate_instrumental,
     normalize_story_music_prompt,
@@ -462,38 +468,92 @@ class SegmentsToTimeline:
         if tts_model is not None:
             speak_kw["model"] = tts_model
 
-        if len(chunks) == 1:
+        # Gemini 3.8 uses the structured schema: verbatim transcript + speech_metadata.
+        gemini38 = is_gemini38_tts_slug(tts_model or get_openrouter_tts_model())
+        style_override: str | None = None
+        if gemini38:
+            for key in ("sample_context", "audio_profile"):
+                val = prompt_kw.get(key)
+                if val is not None and val.strip():
+                    style_override = val.strip()
+                    break
+
+        speech_metadata = self._speak_longform_chunks(
+            chunks,
+            gemini38=gemini38,
+            style_override=style_override,
+            prompt_kw=prompt_kw,
+            section=section,
+            speak_kw=speak_kw,
+            output_file=output_file,
+            chunk_pause_ms=chunk_pause_ms,
+        )
+        return speech_metadata
+
+    def _speak_longform_chunks(
+        self,
+        chunks: list[str],
+        *,
+        gemini38: bool,
+        style_override: str | None,
+        prompt_kw: dict[str, str],
+        section: str | None,
+        speak_kw: dict[str, Any],
+        output_file: str,
+        chunk_pause_ms: int,
+    ) -> dict[str, Any]:
+        """Render long-form chunks with the legacy prompt or the Gemini 3.8 schema."""
+        combined = AudioSegment.empty()
+        if not gemini38 and len(chunks) == 1:
             try:
                 prompt = build_longform_tts_prompt(
                     chunks[0], chunk_index=0, chunk_total=1, **prompt_kw
                 )
             except ValueError as err:
                 logger.info("Skipping long-form TTS: %s", err)
-                return None
+                return {}
             self.show_tts.speak_longform(prompt, output_file, **speak_kw)
             return {}
 
-        combined = AudioSegment.empty()
         previous_tail: str | None = None
         for i, chunk in enumerate(chunks):
-            try:
-                prompt = build_longform_tts_prompt(
-                    chunk,
-                    chunk_index=i,
-                    chunk_total=len(chunks),
-                    previous_tail=previous_tail,
-                    **prompt_kw,
-                )
-            except ValueError as err:
-                logger.warning("Skipping long-form TTS chunk %s: %s", i + 1, err)
-                continue
+            if gemini38:
+                try:
+                    request = build_gemini38_tts_request(
+                        chunk,
+                        style=style_override,
+                        section=section,
+                    )
+                except ValueError as err:
+                    if len(chunks) == 1:
+                        logger.info("Skipping long-form TTS: %s", err)
+                        return {}
+                    logger.warning("Skipping long-form TTS chunk %s: %s", i + 1, err)
+                    continue
+                prompt = request["input"]
+                speech_metadata = request["speech_metadata"]
+            else:
+                try:
+                    prompt = build_longform_tts_prompt(
+                        chunk,
+                        chunk_index=i,
+                        chunk_total=len(chunks),
+                        previous_tail=previous_tail,
+                        **prompt_kw,
+                    )
+                except ValueError as err:
+                    logger.warning("Skipping long-form TTS chunk %s: %s", i + 1, err)
+                    continue
+                speech_metadata = None
 
             fd, tmp_audio = tempfile.mkstemp(
                 suffix=".wav", prefix=f"llmfh_longform_{i:02d}_"
             )
             os.close(fd)
             try:
-                self.show_tts.speak_longform(prompt, tmp_audio, **speak_kw)
+                self.show_tts.speak_longform(
+                    prompt, tmp_audio, speech_metadata=speech_metadata, **speak_kw
+                )
                 segment = AudioSegment.from_wav(tmp_audio)
                 combined += segment
                 if i < len(chunks) - 1 and chunk_pause_ms > 0:
@@ -509,11 +569,11 @@ class SegmentsToTimeline:
 
         if len(combined) == 0:
             logger.info("No long-form TTS audio generated after chunking")
-            return None
+            return {}
 
         combined.export(output_file, format="wav")
         return {}
-        
+
     def init_ytfetch(self, **kwargs):
         if self.yt_fetch is None:
             self.yt_fetch = ytfetch.YtFetch(**kwargs)

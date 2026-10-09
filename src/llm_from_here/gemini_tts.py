@@ -1,4 +1,12 @@
-"""Gemini 3.1 Flash TTS inline tags and narrator text preparation."""
+"""Gemini TTS inline tags and narrator text preparation.
+
+Two prompt schemas are supported:
+- ``legacy`` (Gemini 3.1 / 2.5): Audio Profile / Director's Notes header blocks
+  plus square-bracket emotion tags ([positive], [curiosity], ...).
+- ``gemini38`` (Gemini 3.8 Flash TTS): text is a verbatim transcript; sustained
+  delivery moves into structured ``speech_metadata.style`` and momentary vocal
+  events may appear inline as angle-bracket tags (<laugh>, <sigh>, ...).
+"""
 
 from __future__ import annotations
 
@@ -42,6 +50,51 @@ _PRODUCTION_BRACKET_RE = re.compile(
 )
 _ANY_BRACKET_RE = re.compile(r"\[([^\]]+)\]")
 
+# Gemini 3.8 angle-bracket vocal events (point-in-time, performed inline).
+GEMINI38_VOCAL_EVENTS = frozenset(
+    {
+        "laugh",
+        "laughs",
+        "sigh",
+        "breath",
+        "cough",
+        "gasp",
+        "short pause",
+        "medium pause",
+        "long pause",
+    }
+)
+_ANY_ANGLE_RE = re.compile(r"<([^\n<>]{1,40})>")
+
+# Sustained style strings for Gemini 3.8 speech_metadata (structured schema).
+GEMINI38_DEFAULT_STYLE = (
+    "Warm, witty NPR radio host; relaxed storytelling with natural breath "
+    "and phrasing, like Live From There."
+)
+_GEMINI38_SECTION_STYLES: dict[str, str] = {
+    "intro": (
+        "Warm, witty host opening a live radio show; energetic but unhurried, "
+        "direct address to an intimate studio audience."
+    ),
+    "story": (
+        "Warm, intimate first-person narrator; relaxed storytelling with "
+        "natural pauses and emotionally present delivery."
+    ),
+    "outro": (
+        "Grateful, lightly humorous host signing off; unhurried warmth with "
+        "satisfied end-of-show energy."
+    ),
+}
+_GEMINI38_MAX_STYLE_CHARS = 480
+
+
+def is_gemini38_tts_slug(slug: str | None) -> bool:
+    """True when the TTS model slug is a Gemini 3.8 TTS model (structured schema)."""
+    if not slug:
+        return False
+    lowered = slug.lower()
+    return "gemini" in lowered and "tts" in lowered and "3.8" in lowered
+
 
 def gemini_tag_prompt_block() -> str:
     """Prompt snippet for script LLMs — keep configs/configv3.yaml narrator prompts in sync."""
@@ -56,12 +109,17 @@ def gemini_tag_prompt_block() -> str:
     )
 
 
-def prepare_narrator_tts_text(text: str) -> str:
+def prepare_narrator_tts_text(text: str, *, schema: str = "legacy") -> str:
     """
     Prepare narrator dialog for TTS.
 
     Strips show-production bracket cues and unknown [tags]; preserves allowlisted
     Gemini emotion tags. Also removes parenthetical asides and double quotes.
+
+    ``schema`` selects tag handling:
+    - ``legacy``: angle-bracket tags pass through untouched (3.1 behavior).
+    - ``gemini38``: allowlisted angle-bracket vocal events (<laugh>, <sigh>, ...)
+      are preserved; unknown angle tags are stripped.
     """
     filtered = _PRODUCTION_BRACKET_RE.sub("", text)
 
@@ -73,9 +131,44 @@ def prepare_narrator_tts_text(text: str) -> str:
         return ""
 
     filtered = _ANY_BRACKET_RE.sub(_replace_bracket, filtered)
+    if schema == "gemini38":
+        filtered = _ANY_ANGLE_RE.sub(_replace_angle, filtered)
     filtered = re.sub(r"\(.*?\)", "", filtered)
     filtered = filtered.replace('"', "")
     return re.sub(r"\s+", " ", filtered).strip()
+
+
+def _replace_angle(match: re.Match[str]) -> str:
+    inner = match.group(1).strip().lower()
+    if inner in GEMINI38_VOCAL_EVENTS:
+        return f"<{inner}>"
+    logger.warning("Stripping unknown angle-bracket vocal event <%s>", match.group(1))
+    return ""
+
+
+def build_gemini38_tts_request(
+    transcript: str,
+    *,
+    style: str | None = None,
+    section: str | None = None,
+) -> dict[str, object]:
+    """
+    Build a Gemini 3.8 TTS request body fragment for OpenRouter's /audio/speech.
+
+    Gemini 3.8 treats ``input`` as a verbatim transcript; sustained delivery
+    moves to ``speech_metadata.style``. Returns a dict suitable for merging
+    into the request body (via the OpenAI SDK's ``extra_body``).
+    """
+    prepared = prepare_narrator_tts_text(transcript, schema="gemini38")
+    if not prepared:
+        raise ValueError("transcript is empty after narrator text preparation")
+
+    preset = _GEMINI38_SECTION_STYLES.get((section or "").strip().lower())
+    style_text = (style or preset or GEMINI38_DEFAULT_STYLE).strip()
+    if len(style_text) > _GEMINI38_MAX_STYLE_CHARS:
+        style_text = style_text[:_GEMINI38_MAX_STYLE_CHARS].rstrip()
+    metadata: dict[str, str] = {"style": style_text}
+    return {"input": prepared, "speech_metadata": metadata}
 
 
 _DEFAULT_AUDIO_PROFILE = (
