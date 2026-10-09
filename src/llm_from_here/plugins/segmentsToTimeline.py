@@ -85,8 +85,14 @@ class SegmentsToTimeline:
                 return m
         return self.params.get("segment_type_map") or {}
 
-    def applause_generator(self, text, output_file):
-        # extract the duration from the text
+    def improv_audio_block(self, file_path, output_file, **kwargs):
+        """Place a pre-rendered improv dialog block on the timeline as-is."""
+        seg = AudioSegment.from_file(str(file_path))
+        seg.export(output_file, format="wav")
+        logger.info("Placing improv dialog block: %s", file_path)
+        return {}
+
+    def applause_generator(self, text, output_file):        # extract the duration from the text
         match = re.search(r"duration (\d+)", text)
         if match:
             duration = int(match.group(1)) * 1000

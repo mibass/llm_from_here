@@ -171,6 +171,19 @@ def _clean_dialog(dialog: str, name: str) -> str:
     return cleaned or (dialog or "").strip()
 
 
+def _clean_dialog_38(dialog: str, name: str) -> str:
+    """Gemini 3.8 variant: keep <vocal events> and |pipe| backchannels intact."""
+    # Square brackets are still production cues; angle tags and pipes are content.
+    cleaned = _strip_bracket_cues(dialog or "")
+    prefix_re = re.compile(rf"^\s*{re.escape(name)}\s*:\s*", re.IGNORECASE)
+    prev: str | None = None
+    while prev != cleaned:
+        prev = cleaned
+        cleaned = prefix_re.sub("", cleaned)
+    cleaned = cleaned.strip().strip('"').strip()
+    return cleaned or (dialog or "").strip()
+
+
 _DEFAULT_SFX_MAP: dict[str, Any] = {
     "sound effect": {
         "segment_type": "music_generator_foley_agent",
@@ -188,8 +201,36 @@ _DEFAULT_SFX_MAP: dict[str, Any] = {
             "duration_max_sec": 200,
         },
     },
+    "improv_dialog_block": {
+        "segment_type": "improv_audio_block",
+        "arguments": {},
+    },
     "default": {"segment_type": "slow_TTS", "arguments": {}},
 }
+
+
+# Google Gemini 3.8 TTS guidance for natural multi-speaker dialog: the render
+# input is a verbatim spoken transcript and the render layer stays mostly
+# direction-free (per-turn instructions unused). The length/specificity/overlap
+# rules below fix the "reading from manuals" failure mode of spec-saturated
+# writing and shrink turns toward real podcast cadence.
+_IMPROV_38_DIALOG_RULES = (
+    "COMEDY AND PACING OVERRIDES:\n"
+    "- LENGTH: 1-3 SHORT spoken sentences per turn. Accept the pause. Most turns "
+    "are TEN WORDS OR FEWER punchy exchanges; only a setup beat is longer.\n"
+    "- SPECIFICITY RATION: at most ONE absurd specific (one name/brand/number/"
+    "website) per TURN, and only a handful across the whole scene. No technical "
+    "jargon, units, or model years unless the premise itself is a technical bit.\n"
+    "- SPEAK HUMAN: broken cadence. Use dashes ( -- ) for self-interruption, "
+    "ellipses (...) to trail, disfluencies sparingly ('oh', 'uh', 'sorry, what'), "
+    "and reaction-first answers ('no. No. NO.'). No complete polished paragraphs.\n"
+    "- OVERLAP: use ONE |pipe| backchannel per every two or three beats when the "
+    "other person would jump in (" '"' "I bought a lighthouse |okay| and I need..." '"' ").\n"
+    "- VOCAL EVENTS inline where they happen, max one per turn, only when earned: "
+    "<laugh> <sigh> <short pause> <breath> <gasp>.\n"
+    "- LISTEN: your line is a direct answer to your partner's LAST words, not a "
+    "prepared speech.\n"
+)
 
 
 _BASE_REALITY_RULE = (
@@ -251,6 +292,11 @@ class ImprovAgent:
 
         self.target_turn_count = int(params.get("target_turn_count", 20))
         self.scene_injection = (params.get("scene_injection") or "").strip()
+        # Gemini 3.8 multi-speaker render: coalesce consecutive character turns into
+        # single turn-list TTS calls (per-turn voices carried in the request turns),
+        # and write 3.8-native dialog (verbatim spoken text + vocal events + pipes).
+        self.multi_speaker_render = bool(params.get("multi_speaker_render", True))
+        self.show_tts = None
 
         self.news_inspiration: dict[str, Any] | None = None
         news = params.get("news_inspiration")
@@ -417,20 +463,36 @@ class ImprovAgent:
                 f"{button_hint}"
             )
 
+        if self.multi_speaker_render:
+            dialog_line = (
+                "- dialog: spoken words only, verbatim podcast cadence \u2014 one to three "
+                "SHORT sentences (punchy exchanges are under ten words). Do NOT prefix your "
+                "name. Never put performance verbs or acting notes in dialog \u2014 use the "
+                "inline vocal events and pipes described below. "
+                "End on the punchline; no 'you know'/'right?'/'exactly' padding, no "
+                "compliment chains or trailing tag-ons that restate the joke.\n"
+            )
+            rules = _IMPROV_38_DIALOG_RULES
+        else:
+            dialog_line = (
+                "- dialog: two to four sentences of spoken words only, so the beat has room "
+                "to land like a real podcast exchange. Do NOT prefix your name. "
+                "Do NOT include stage directions or bracketed cues in dialog. "
+                "Never put performance verbs or acting notes in dialog (hum, sing, whistle, "
+                "laugh, sigh, 'you have to...') \u2014 those go in stage_direction, and the "
+                "voice will otherwise perform them. "
+                "End on the punchline; no 'you know'/'right?'/'exactly' padding, no compliment "
+                "chains, no trailing tag-ons that restate the joke. If the setup is already paid "
+                "off, subvert the predictable. Be specific: name the object, the brand, the number.\n"
+            )
+            rules = ""
+
         return (
             "Transcript so far:\n"
             + "\n".join(transcript_parts)
             + f"\n\nYour turn, {ch_name}. Deliver the next beat as ONE structured turn:\n"
-            "- dialog: two to four sentences of spoken words only, so the beat has room "
-            "to land like a real podcast exchange. Do NOT prefix your name. "
-            "Do NOT include stage directions or bracketed cues in dialog. "
-            "Never put performance verbs or acting notes in dialog (hum, sing, whistle, "
-            "laugh, sigh, 'you have to...') \u2014 those go in stage_direction, and the "
-            "voice will otherwise perform them. "
-            "End on the punchline; no 'you know'/'right?'/'exactly' padding, no compliment "
-            "chains, no trailing tag-ons that restate the joke. If the setup is already paid "
-            "off, subvert the predictable. Be specific: name the object, the brand, the number.\n"
-            "- stage_direction: optional short acting note (not spoken). If this beat needs a "
+            + dialog_line
+            + "- stage_direction: optional short acting note (not spoken). If this beat needs a "
             "song or hum, write it here as [SUNG: <what is sung, e.g. 'Happy Birthday'>]; "
             "keep the spoken dialog clean.\n"
             "- sfx_cues: at most ONE concrete, audible sound-effect search query, and only "
@@ -439,6 +501,7 @@ class ImprovAgent:
             "Use real sounds (e.g. 'coffee machine steam', 'doorbell chime', 'chair scrape'), "
             "not emotions or gestures. Leave empty if no sound is warranted.\n"
             f"{move_line}"
+            f"{rules}"
         )
 
     def _sfx_segments_for_turn(
@@ -516,7 +579,10 @@ class ImprovAgent:
 
                 raw = sess.run_structured(prompt, ImprovTurn)
                 turn = ImprovTurn.model_validate(raw)
-                dialog = _clean_dialog(turn.dialog, ch.name)
+                if self.multi_speaker_render:
+                    dialog = _clean_dialog_38(turn.dialog, ch.name)
+                else:
+                    dialog = _clean_dialog(turn.dialog, ch.name)
 
                 sung = _extract_sung_cue(turn.stage_direction) or _extract_sung_cue(turn.dialog)
                 beat_kind = "sung" if sung else "dialog"
@@ -526,13 +592,15 @@ class ImprovAgent:
                 if sung:
                     dialog = _sung_directive(sung)
 
-                segments.append(
-                    {
-                        "speaker": speaker_key,
-                        "dialog": dialog,
-                        "character_name": ch.name,
-                    }
-                )
+                entry: dict[str, Any] = {
+                    "speaker": speaker_key,
+                    "dialog": dialog,
+                    "character_name": ch.name,
+                }
+                if sung and self.multi_speaker_render:
+                    entry["instructions"] = _sung_directive(sung)
+                segments.append(entry)
+
                 transcript_parts.append(f"{ch.name}: {dialog}")
 
                 segments.extend(self._sfx_segments_for_turn(turn, turns_done))
@@ -582,10 +650,85 @@ class ImprovAgent:
         try:
             threshold = float(prob)
         except (TypeError, ValueError) as err:
-            raise ValueError(f"include_probability must be a number, got {prob!r}") from err
+            raise ValueError(f"include_probability must be a number, got {prob!r}")
         if threshold < 0 or threshold > 1:
             raise ValueError(f"include_probability must be between 0 and 1, got {threshold}")
         return random.random() < threshold
+
+    def _render_dialog_blocks(
+        self, segments: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Coalesce consecutive character turns into multi-speaker TTS blocks.
+
+        Runs of adjacent ``character N`` entries become one turn-list render (voices
+        per turn), emitted as a single ``improv_dialog_block`` segment that
+        segmentsToTimeline places directly from the pre-rendered wav. SFX / music /
+        applause segments between runs stay interleaved at their exact positions.
+        On any render failure the run falls back to its original per-turn segments.
+        """
+        if self.show_tts is None:
+            from llm_from_here.plugins import showTTS as showtts_mod
+
+            self.show_tts = showtts_mod.ShowTextToSpeech()
+
+        voice_by_slot: dict[str, str] = {}
+        for i, slot_cfg in enumerate(self.character_slots_cfg):
+            voice = (slot_cfg.get("tts_voice") or "").strip()
+            if voice:
+                voice_by_slot[f"character {i + 1}"] = voice
+
+        out: list[dict[str, Any]] = []
+        run: list[dict[str, Any]] = []
+
+        def flush_run() -> None:
+            nonlocal run
+            if not run:
+                return
+            turns = []
+            for entry in run:
+                t: dict[str, str] = {
+                    "text": str(entry["dialog"]),
+                    "voice": voice_by_slot.get(
+                        str(entry["speaker"]),
+                        next(iter(voice_by_slot.values()), "Puck"),
+                    ),
+                }
+                instructions = (entry.get("instructions") or "").strip()
+                if instructions:
+                    t["instructions"] = instructions
+                turns.append(t)
+            name = (
+                f"{self.plugin_instance_name}_dialog_block_{len(out):03d}.wav"
+            )
+            path = os.path.join(self.output_folder, name)
+            ok = False
+            try:
+                self.show_tts.speak_multi_speaker(turns, path)
+                ok = True
+            except Exception:
+                logger.warning("Multi-speaker block render failed; using per-turn TTS", exc_info=True)
+                ok = False
+            run_snapshot = run
+            if ok:
+                out.append(
+                    {
+                        "speaker": "improv_dialog_block",
+                        "dialog": path,
+                    }
+                )
+            else:
+                out.extend(run_snapshot)
+            run = []
+
+        for entry in segments:
+            sp = str(entry.get("speaker", ""))
+            if sp.startswith("character") and voice_by_slot.get(sp):
+                run.append(entry)
+            else:
+                flush_run()
+                out.append(entry)
+        flush_run()
+        return out
 
     def execute(self) -> dict[str, Any]:
         if not self.included:
@@ -599,6 +742,8 @@ class ImprovAgent:
         assert self.scene is not None
         self._prime_slots(self.scene)
         segments, script = self._generation_loop(self.scene)
+        if self.multi_speaker_render:
+            segments = self._render_dialog_blocks(segments)
         seg_map = self._build_segment_type_map(self.scene)
         debug_path = self._write_debug_dump(self.scene, segments, script)
 
